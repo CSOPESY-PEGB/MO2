@@ -3,19 +3,19 @@
 ## I. Core Functionality
 
 -   [x] **Main Menu:** Create using only C++ built-in libraries.
--   [ ] **ASCII Header:** Display "CSOPESY" or custom emulator name.
--   [ ] **Command Handling:**
-    -   [ ] Accept user input.
-    -   [ ] `initialize`: Print "initialize command recognized. Doing something."
-    -   [ ] `screen`: Print "screen command recognized. Doing something."
-    -   [ ] `scheduler-test`: Print "scheduler-test command recognized. Doing something."
-    -   [ ] `scheduler-stop`: Print "scheduler-stop command recognized. Doing something."
-    -   [ ] `report-util`: Print "report-util command recognized. Doing something."
+-   [x] **ASCII Header:** Display "CSOPESY" or custom emulator name.
+-   [x] **Command Handling:**
+    -   [x] Accept user input.
+    -   [x] `initialize`: Print "initialize command recognized. Doing something."
+    -   [x] `screen`: Print "screen command recognized. Doing something."
+    -   [x] `scheduler-test`: Print "scheduler-test command recognized. Doing something."
+    -   [x] `scheduler-stop`: Print "scheduler-stop command recognized. Doing something."
+    -   [x] `report-util`: Print "report-util command recognized. Doing something."
 -   [ ] **`clear` Command:**
-    -   [ ] Clear screen.
-    -   [ ] Reprint header.
+    -   [x] Clear screen.
+    -   [x] Reprint header.
 -   [ ] **`exit` Command:**
-    -   [ ] Immediately close the application.
+    -   [x] Immediately close the application.
 
 ## II. Video Submission
 
