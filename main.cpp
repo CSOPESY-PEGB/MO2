@@ -17,7 +17,7 @@ enum class Commands {
 using CommandMap = std::unordered_map<std::string_view, Commands>;
 static const CommandMap cmd_map = {
     {"initialize",    Commands::Initialize},
-    {"screen",        Commands::Screen},
+    {"screen",        Commands::Screen},    
     {"scheduler-test",Commands::SchedulerTest},
     {"scheduler-stop",Commands::SchedulerStop},
     {"report-util",   Commands::ReportUtil},
@@ -35,6 +35,7 @@ Commands from_str(const std::string_view cmd) {
 
 // TODO: Replace with calls to initscr if using ncurses.
 void console_prompt() {
+    
     std::cout << R"(
 ░▒▓███████▓▒░░▒▓████████▓▒░▒▓██████▓▒░░▒▓███████▓▒░
 ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░     ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░
@@ -43,9 +44,13 @@ void console_prompt() {
 ░▒▓█▓▒░      ░▒▓█▓▒░     ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░
 ░▒▓█▓▒░      ░▒▓█▓▒░     ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░
 ░▒▓█▓▒░      ░▒▓████████▓▒░▒▓██████▓▒░░▒▓█▓▒░
+)"; 
+    std::cout << "\e[1;32mHello, Welcome to PEGP Command line! \e[0m " << std::endl;
+    std::cout << "\e[3;33mType 'exit' to quit, 'clear' to clear the screen.\e[0m" << std::endl;
 
-)";
 }
+
+
 
 int main() {
     std::string input;
