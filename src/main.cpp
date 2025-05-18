@@ -1,27 +1,29 @@
+#include <iostream>
+
 #include "commands.hpp"
 #include "config.hpp"
 #include "console.hpp"
 #include "dispatcher.hpp"
 #include "parser.hpp"
-#include <iostream>
+#include "process_control_block.hpp"
 
-int main()
-{
-    Config cfg;
-    console_prompt();
+int main() {
+  Config cfg;
+  std::unordered_set<PCB> processes;
+  console_prompt();
 
-    std::string line;
-    while (std::cout << "~ " && std::getline(std::cin, line)) {
-        auto tokens = parse_tokens(line);
-        if (tokens.empty()) continue;
+  std::string line;
+  while (std::cout << "~ " && std::getline(std::cin, line)) {
+    auto tokens = parse_tokens(line);
+    if (tokens.empty()) continue;
 
-        try {
-            Commands cmd = from_str(tokens.front());
-            tokens.erase(tokens.begin());
-            dispatch(cmd, tokens, cfg);
-        } catch (const std::exception& ex) {
-            std::cerr << ex.what() << '\n';
-        }
+    try {
+      Commands cmd = from_str(tokens.front());
+      tokens.erase(tokens.begin());
+      dispatch(cmd, tokens, cfg, processes);
+    } catch (const std::exception& ex) {
+      std::cerr << ex.what() << '\n';
     }
-    return 0;
+  }
+  return 0;
 }

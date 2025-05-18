@@ -1,30 +1,31 @@
 #include "dispatcher.hpp"
-#include "console.hpp"
+
 #include <cstdlib>
 #include <iostream>
 
-void dispatch(Commands cmd,
-              const std::vector<std::string>& args,
-              Config& cfg)
-{
-    switch (cmd) {
-        case Commands::Initialize:
-            cfg = Config::fromFile(args.empty() ? "config.txt" : args[0]);
-            break;
-        case Commands::SchedulerTest:
-        case Commands::Screen:
+#include "console.hpp"
+#include "screen.hpp"
 
-        case Commands::SchedulerStop:
-        case Commands::ReportUtil:
-            std::cout << "TODO run " << static_cast<int>(cmd) << '\n';
-            break;
+void dispatch(Commands cmd, std::vector<std::string>& args, Config& cfg,
+              std::unordered_set<PCB>& procs) {
+  switch (cmd) {
+    case Commands::Initialize:
+      cfg = Config::fromFile(args.empty() ? "config.txt" : args[0]);
+      break;
+    case Commands::SchedulerTest:
+    case Commands::Screen:
+      screen(args, procs);
+    case Commands::SchedulerStop:
+    case Commands::ReportUtil:
+      std::cout << "TODO run " << static_cast<int>(cmd) << '\n';
+      break;
 
-        case Commands::Clear:
-            std::cout << "\x1b[2J\x1b[H";
-            console_prompt();
-            break;
+    case Commands::Clear:
+      std::cout << "\x1b[2J\x1b[H";
+      console_prompt();
+      break;
 
-        case Commands::Exit:
-            std::exit(0);
-    }
+    case Commands::Exit:
+      std::exit(0);
+  }
 }

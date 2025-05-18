@@ -5,5 +5,6 @@ file(GLOB SRC CONFIGURE_DEPENDS src/*.cpp)
 add_executable(sim ${SRC}
         src/screen.cpp
         include/screen.hpp
-        include/process_control_block.hpp)
+        include/process_control_block.hpp
+        src/process_control_block.cpp)
 target_include_directories(sim PUBLIC include)
