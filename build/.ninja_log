@@ -1,0 +1,9 @@
+# ninja log v6
+19	65	1747504074958721363	/home/armaine/Documents/opesy-week-2/build/CMakeFiles/cmake.verify_globs	9ff4ce0387041ca7
+84	1394	1747504075018721345	CMakeFiles/sim.dir/src/console.cpp.o	c4f2a67845c39549
+66	1562	1747504074998721353	CMakeFiles/sim.dir/src/commands.cpp.o	e05431aa1600a292
+98	1573	1747504075038721338	CMakeFiles/sim.dir/src/parser.cpp.o	2fffce41a8b5c675
+85	1772	1747504075018721345	CMakeFiles/sim.dir/src/dispatcher.cpp.o	a06075a2d889383
+84	1926	1747504075018721345	CMakeFiles/sim.dir/src/config.cpp.o	c127a7104129783
+88	1938	1747504075028721344	CMakeFiles/sim.dir/src/main.cpp.o	9938a3a39d0ca09e
+1938	2203	1747504076878720832	sim	2ffd2ce5d5954885
