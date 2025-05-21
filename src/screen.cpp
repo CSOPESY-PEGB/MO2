@@ -54,7 +54,7 @@ bool find_process_status(const std::string& process_name, const std::unordered_s
 void screen(std::vector<std::string>& args, std::unordered_set<PCB>& processes) {
     if (args.size() != EXPECTED_ARGS_COUNT) {
         display_usage();
-        return false;
+        return;
     }
 
     const auto command = parse_command(args[0]);
