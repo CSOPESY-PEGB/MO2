@@ -51,7 +51,7 @@ bool find_process_status(const std::string& process_name, const std::unordered_s
     return false;
 }
 
-bool screen(const std::vector<std::string>& args, std::unordered_set<PCB>& processes) {
+void screen(std::vector<std::string>& args, std::unordered_set<PCB>& processes) {
     if (args.size() != EXPECTED_ARGS_COUNT) {
         display_usage();
         return false;
@@ -62,11 +62,13 @@ bool screen(const std::vector<std::string>& args, std::unordered_set<PCB>& proce
 
     switch (command) {
         case ScreenCommand::Start:
-            return create_process(process_name, processes);
+            create_process(process_name, processes);
+            break;
         case ScreenCommand::Resume:
-            return find_process_status(process_name, processes);
+            find_process_status(process_name, processes);
+            break;
         default:
             display_usage();
-            return false;
+            break;
     }
 }
