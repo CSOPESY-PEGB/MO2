@@ -28,14 +28,12 @@ bool create_process(const std::string& process_name, std::unordered_set<PCB>& pr
     try {
         if (!processes.insert(process).second) {
             std::cerr << "Process already exists\n";
-            std::cout << "Enter another command: ";
             return false;
         }
         std::cout << "Process " << process.processName << " created\n";
         return true;
     } catch (const std::exception& e) {
         std::cerr << "Error creating process: " << e.what() << '\n';
-        std::cout << "Enter another command: ";
         return false;
     }
 }
@@ -50,14 +48,12 @@ bool find_process_status(const std::string& process_name, const std::unordered_s
     }
     
     std::cout << "Couldn't find process named: " << process_name << '\n';
-    std::cout << "Enter another command: ";
     return false;
 }
 
 void screen(std::vector<std::string>& args, std::unordered_set<PCB>& processes) {
     if (args.size() != EXPECTED_ARGS_COUNT) {
         display_usage();
-        std::cout << "Enter another command: ";
         return;
     }
 
@@ -73,7 +69,6 @@ void screen(std::vector<std::string>& args, std::unordered_set<PCB>& processes) 
             break;
         default:
             display_usage();
-            std::cout << "Enter another command: ";
             break;
     }
 }
