@@ -62,7 +62,7 @@ void screen(std::vector<std::string>& args, std::unordered_set<PCB>& processes) 
 
     switch (command) {
         case ScreenCommand::Start:
-            create_process(process_name, processes);
+          create_process(process_name, processes);
             break;
         case ScreenCommand::Resume:
             find_process_status(process_name, processes);
