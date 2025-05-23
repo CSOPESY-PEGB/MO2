@@ -11,7 +11,7 @@ int main() {
   Config cfg;
   std::unordered_set<PCB> processes;
   console_prompt();
-
+  bool screenSession = false;
   std::string line;
   while (std::cout << "~ " << std::flush && std::getline(std::cin, line)) {
     auto tokens = parse_tokens(line);
@@ -20,7 +20,7 @@ int main() {
     try {
       Commands cmd = from_str(tokens.front());
       tokens.erase(tokens.begin());
-      dispatch(cmd, tokens, cfg, processes);
+      dispatch(cmd, tokens, cfg, processes, screenSession);
     } catch (const std::exception& ex) {
       std::cerr << ex.what() << std::endl;
     }

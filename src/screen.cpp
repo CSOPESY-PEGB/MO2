@@ -1,7 +1,12 @@
 #include "screen.hpp"
+#include "parser.hpp"
+#include "commands.hpp"
+#include "console.hpp"
+
 #include <iostream>
 #include <unordered_set>
 #include <vector>
+#include <string>
 
 enum class ScreenCommand {
     Resume,
@@ -24,51 +29,78 @@ ScreenCommand parse_command(const std::string& cmd) {
 }
 
 bool create_process(const std::string& process_name, std::unordered_set<PCB>& processes) {
-    const auto process = PCB(process_name, 0);
+    PCB pcb(process_name, /* initial priority or status */ 100);
     try {
-        if (!processes.insert(process).second) {
-            std::cerr << "Process already exists" << std::endl;
+        if (!processes.insert(pcb).second) {
+            std::cerr << "Process already exists: " << process_name << "\n";
             return false;
         }
-        std::cout << "Process " << process.processName << " created" << std::endl;
+        std::cout << "Process " << pcb.processName << " created\n";
         return true;
     } catch (const std::exception& e) {
-        std::cerr << "Error creating process: " << e.what() << std::endl;
+        std::cerr << "Error creating process: " << e.what() << "\n";
         return false;
     }
 }
 
-bool find_process_status(const std::string& process_name, const std::unordered_set<PCB>& processes) {
-    const PCB search_process(process_name, 0);
-    auto it = processes.find(search_process);
-    
-    if (it != processes.end()) {
-        std::cout << "Found Process: " << it->status() << std::endl;
-        return true;
-    }
-    
-    std::cout << "Couldn't find process named: " << process_name << std::endl;
-    return false;
-}
-
-void screen(std::vector<std::string>& args, std::unordered_set<PCB>& processes) {
+void screen(std::vector<std::string>& args,
+            std::unordered_set<PCB>& processes,
+            bool& screenSession)
+{
     if (args.size() != EXPECTED_ARGS_COUNT) {
         display_usage();
         return;
     }
 
-    const auto command = parse_command(args[0]);
-    const auto& process_name = args[1];
+    const ScreenCommand cmd = parse_command(args[0]);
+    const std::string& name = args[1];
 
-    switch (command) {
-        case ScreenCommand::Start:
-          create_process(process_name, processes);
+    switch (cmd) {
+      case ScreenCommand::Start:
+        create_process(name, processes);
+        break;
+
+      case ScreenCommand::Resume: {
+        PCB probe(name, 0);
+        auto it = processes.find(probe);
+        if (it == processes.end()) {
+            std::cout << "Couldn't find process named: " << name << "\n";
             break;
-        case ScreenCommand::Resume:
-            find_process_status(process_name, processes);
-            break;
-        default:
-            display_usage();
-            break;
+        }
+
+        // Found it, enter interactive session
+        screenSession = true;
+        std::cout << "\x1b[2J\x1b[H";       // clear screen + home
+        const PCB& pcb = *it;
+        std::cout << "Resumed Process: " << pcb.status() << "\n";
+
+        std::string line;
+        while (screenSession && (std::cout << "~ ") && std::getline(std::cin, line)) {
+            auto tokens = parse_tokens(line);
+            if (tokens.empty()) continue;
+
+            try {
+                Commands c = from_str(tokens.front());
+                tokens.erase(tokens.begin());
+
+                if (c == Commands::Exit) {
+                    std::cout << "Exiting session for process: " << pcb.processName << "\n";
+                    screenSession = false;
+                    std::cout << "\x1b[2J\x1b[H";   // clear before returning to prompt
+                    console_prompt();
+                } else {
+                    // handle other in‐session commands here
+                    std::cout << "Unhandled command in screen session.\n";
+                }
+            } catch (const std::exception& ex) {
+                std::cerr << ex.what() << "\n";
+            }
+        }
+        break;
+      }
+
+      default:
+        display_usage();
+        break;
     }
 }
