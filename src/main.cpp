@@ -13,7 +13,7 @@ int main() {
   console_prompt();
 
   std::string line;
-  while (std::cout << "~ " && std::getline(std::cin, line)) {
+  while (std::cout << "~ " << std::flush && std::getline(std::cin, line)) {
     auto tokens = parse_tokens(line);
     if (tokens.empty()) continue;
 
@@ -22,7 +22,7 @@ int main() {
       tokens.erase(tokens.begin());
       dispatch(cmd, tokens, cfg, processes);
     } catch (const std::exception& ex) {
-      std::cerr << ex.what() << '\n';
+      std::cerr << ex.what() << std::endl;
     }
   }
   return 0;

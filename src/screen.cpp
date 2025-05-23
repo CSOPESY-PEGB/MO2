@@ -27,13 +27,13 @@ bool create_process(const std::string& process_name, std::unordered_set<PCB>& pr
     const auto process = PCB(process_name, 0);
     try {
         if (!processes.insert(process).second) {
-            std::cerr << "Process already exists\n";
+            std::cerr << "Process already exists" << std::endl;
             return false;
         }
-        std::cout << "Process " << process.processName << " created\n";
+        std::cout << "Process " << process.processName << " created" << std::endl;
         return true;
     } catch (const std::exception& e) {
-        std::cerr << "Error creating process: " << e.what() << '\n';
+        std::cerr << "Error creating process: " << e.what() << std::endl;
         return false;
     }
 }
@@ -43,11 +43,11 @@ bool find_process_status(const std::string& process_name, const std::unordered_s
     auto it = processes.find(search_process);
     
     if (it != processes.end()) {
-        std::cout << "Found Process: " << it->status() << '\n';
+        std::cout << "Found Process: " << it->status() << std::endl;
         return true;
     }
     
-    std::cout << "Couldn't find process named: " << process_name << '\n';
+    std::cout << "Couldn't find process named: " << process_name << std::endl;
     return false;
 }
 
