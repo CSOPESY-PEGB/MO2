@@ -1,32 +1,35 @@
-// process_control_block.hpp
 #pragma once
 
 #include <chrono>
+#include <functional>
 #include <string>
-#include <functional>   // for std::hash
+
+namespace osemu {
 
 struct PCB {
-  PCB(std::string procName, size_t totalLines);
+    explicit PCB(std::string procName, size_t totalLines);
 
-  void step();
-  bool isComplete() const;
-  std::string status() const;
+    void step();
+    bool isComplete() const;
+    std::string status() const;
 
-  std::string processName;
-  size_t      currentInstruction{0};
-  size_t      totalInstructions;
-  std::chrono::system_clock::time_point creationTime;
+    std::string processName;
+    size_t currentInstruction{0};
+    size_t totalInstructions;
+    std::chrono::system_clock::time_point creationTime;
 };
 
-inline bool operator==(PCB const& a, PCB const& b) noexcept {
-  return a.processName == b.processName;
+inline bool operator==(const PCB& a, const PCB& b) noexcept {
+    return a.processName == b.processName;
+}
+
 }
 
 namespace std {
 template<>
-struct hash<PCB> {
-  size_t operator()(PCB const& pcb) const noexcept {
-    return std::hash<std::string>()(pcb.processName);
-  }
+struct hash<osemu::PCB> {
+    size_t operator()(const osemu::PCB& pcb) const noexcept {
+        return std::hash<std::string>()(pcb.processName);
+    }
 };
 }

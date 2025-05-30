@@ -1,12 +1,17 @@
 #include "screen.hpp"
-#include "parser.hpp"
-#include "commands.hpp"
-#include "console.hpp"
 
 #include <iostream>
+#include <string>
 #include <unordered_set>
 #include <vector>
-#include <string>
+
+#include "commands.hpp"
+#include "console.hpp"
+#include "parser.hpp"
+
+namespace osemu {
+
+namespace {
 
 enum class ScreenCommand {
     Resume,
@@ -14,7 +19,7 @@ enum class ScreenCommand {
     Unknown
 };
 
-static constexpr int EXPECTED_ARGS_COUNT = 2;
+constexpr int EXPECTED_ARGS_COUNT = 2;
 
 void display_usage() {
     std::cout << "Usage:\n"
@@ -29,8 +34,8 @@ ScreenCommand parse_command(const std::string& cmd) {
 }
 
 bool create_process(const std::string& process_name, std::unordered_set<PCB>& processes) {
-    PCB pcb(process_name, /* initial priority or status */ 100);
     try {
+        PCB pcb(process_name, 100);
         if (!processes.insert(pcb).second) {
             std::cerr << "Process already exists: " << process_name << "\n";
             return false;
@@ -43,10 +48,11 @@ bool create_process(const std::string& process_name, std::unordered_set<PCB>& pr
     }
 }
 
+}
+
 void screen(std::vector<std::string>& args,
             std::unordered_set<PCB>& processes,
-            bool& screenSession)
-{
+            bool& screenSession) {
     if (args.size() != EXPECTED_ARGS_COUNT) {
         display_usage();
         return;
@@ -56,51 +62,51 @@ void screen(std::vector<std::string>& args,
     const std::string& name = args[1];
 
     switch (cmd) {
-      case ScreenCommand::Start:
-        create_process(name, processes);
-        break;
+        case ScreenCommand::Start:
+            create_process(name, processes);
+            break;
 
-      case ScreenCommand::Resume: {
-        PCB probe(name, 0);
-        auto it = processes.find(probe);
-        if (it == processes.end()) {
-            std::cout << "Couldn't find process named: " << name << "\n";
+        case ScreenCommand::Resume: {
+            PCB probe(name, 0);
+            auto it = processes.find(probe);
+            if (it == processes.end()) {
+                std::cout << "Couldn't find process named: " << name << "\n";
+                break;
+            }
+
+            screenSession = true;
+            std::cout << "\x1b[2J\x1b[H";
+            const PCB& pcb = *it;
+            std::cout << "Resumed Process: " << pcb.status() << "\n";
+
+            std::string line;
+            while (screenSession && (std::cout << "~ ") && std::getline(std::cin, line)) {
+                auto tokens = parse_tokens(line);
+                if (tokens.empty()) continue;
+
+                try {
+                    Commands c = from_str(tokens.front());
+                    tokens.erase(tokens.begin());
+
+                    if (c == Commands::Exit) {
+                        std::cout << "Exiting session for process: " << pcb.processName << "\n";
+                        screenSession = false;
+                        std::cout << "\x1b[2J\x1b[H";
+                        console_prompt();
+                    } else {
+                        std::cout << "Unhandled command in screen session.\n";
+                    }
+                } catch (const std::exception& ex) {
+                    std::cerr << ex.what() << "\n";
+                }
+            }
             break;
         }
 
-        // Found it, enter interactive session
-        screenSession = true;
-        std::cout << "\x1b[2J\x1b[H";       // clear screen + home
-        const PCB& pcb = *it;
-        std::cout << "Resumed Process: " << pcb.status() << "\n";
-
-        std::string line;
-        while (screenSession && (std::cout << "~ ") && std::getline(std::cin, line)) {
-            auto tokens = parse_tokens(line);
-            if (tokens.empty()) continue;
-
-            try {
-                Commands c = from_str(tokens.front());
-                tokens.erase(tokens.begin());
-
-                if (c == Commands::Exit) {
-                    std::cout << "Exiting session for process: " << pcb.processName << "\n";
-                    screenSession = false;
-                    std::cout << "\x1b[2J\x1b[H";   // clear before returning to prompt
-                    console_prompt();
-                } else {
-                    // handle other in‐session commands here
-                    std::cout << "Unhandled command in screen session.\n";
-                }
-            } catch (const std::exception& ex) {
-                std::cerr << ex.what() << "\n";
-            }
-        }
-        break;
-      }
-
-      default:
-        display_usage();
-        break;
+        default:
+            display_usage();
+            break;
     }
+}
+
 }

@@ -1,4 +1,5 @@
 #include <iostream>
+#include <unordered_set>
 
 #include "commands.hpp"
 #include "config.hpp"
@@ -8,22 +9,28 @@
 #include "process_control_block.hpp"
 
 int main() {
-  Config cfg;
-  std::unordered_set<PCB> processes;
-  console_prompt();
-  bool screenSession = false;
-  std::string line;
-  while (std::cout << "~ " << std::flush && std::getline(std::cin, line)) {
-    auto tokens = parse_tokens(line);
-    if (tokens.empty()) continue;
+    using namespace osemu;
+    
+    Config cfg;
+    std::unordered_set<PCB> processes;
+    console_prompt();
+    bool screenSession = false;
+    std::string line;
+    
+    while (std::cout << "~ " << std::flush && std::getline(std::cin, line)) {
+        auto tokens = parse_tokens(line);
+        if (tokens.empty()) {
+            continue;
+        }
 
-    try {
-      Commands cmd = from_str(tokens.front());
-      tokens.erase(tokens.begin());
-      dispatch(cmd, tokens, cfg, processes, screenSession);
-    } catch (const std::exception& ex) {
-      std::cerr << ex.what() << std::endl;
+        try {
+            Commands cmd = from_str(tokens.front());
+            tokens.erase(tokens.begin());
+            dispatch(cmd, tokens, cfg, processes, screenSession);
+        } catch (const std::exception& ex) {
+            std::cerr << "Error: " << ex.what() << '\n';
+        }
     }
-  }
-  return 0;
+    
+    return 0;
 }
