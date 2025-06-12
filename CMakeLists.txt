@@ -6,5 +6,6 @@ add_executable(sim ${SRC}
         src/screen.cpp
         include/screen.hpp
         include/process_control_block.hpp
-        src/process_control_block.cpp)
+        src/process_control_block.cpp
+        src/thread_safe_queue.h)
 target_include_directories(sim PUBLIC include)
