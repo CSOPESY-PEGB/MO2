@@ -8,5 +8,6 @@ add_executable(sim ${SRC}
         include/process_control_block.hpp
         src/process_control_block.cpp
         include/thread_safe_queue.h
-        include/Scheduler.h)
+        include/scheduler.hpp
+        src/scheduler.cpp)
 target_include_directories(sim PUBLIC include)

@@ -3,7 +3,7 @@
 
 #include "config.hpp"
 #include "process_control_block.hpp"
-#include "thread_safe_queue.hpp"
+#include "thread_safe_queue.h"
 #include <vector>
 #include <memory>
 #include <mutex>

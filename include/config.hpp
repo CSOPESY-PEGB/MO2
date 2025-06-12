@@ -5,14 +5,14 @@
 
 namespace osemu {
 
-enum class Scheduler { 
+enum class SchedulingAlgorithm {
     FCFS, 
     RoundRobin 
 };
 
 struct Config {
     uint32_t cpuCount{4};
-    Scheduler scheduler{Scheduler::RoundRobin};
+    SchedulingAlgorithm scheduler{SchedulingAlgorithm::RoundRobin};
     uint32_t quantumCycles{5};
     uint32_t processGenFrequency{1};
     uint32_t minInstructions{1000};
@@ -20,7 +20,7 @@ struct Config {
     uint32_t delayCyclesPerInstruction{0};
 
     explicit Config(uint32_t cpu = 4, 
-                   Scheduler sched = Scheduler::RoundRobin,
+                   SchedulingAlgorithm sched = SchedulingAlgorithm::RoundRobin,
                    uint32_t quantum = 5, 
                    uint32_t freq = 1,
                    uint32_t minIns = 1000, 

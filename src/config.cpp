@@ -8,7 +8,7 @@
 
 namespace osemu {
 
-Config::Config(uint32_t cpu, Scheduler sched, uint32_t quantum, uint32_t freq,
+Config::Config(uint32_t cpu, SchedulingAlgorithm sched, uint32_t quantum, uint32_t freq,
                uint32_t minIns, uint32_t maxIns, uint32_t delay)
     : cpuCount{std::clamp(cpu, 1u, 128u)},
       scheduler{sched},
@@ -17,7 +17,7 @@ Config::Config(uint32_t cpu, Scheduler sched, uint32_t quantum, uint32_t freq,
       minInstructions{std::clamp(minIns, 1u, std::numeric_limits<uint32_t>::max())},
       maxInstructions{std::clamp(maxIns, minInstructions, std::numeric_limits<uint32_t>::max())},
       delayCyclesPerInstruction{delay} {
-    if (scheduler != Scheduler::RoundRobin) {
+    if (scheduler != SchedulingAlgorithm::RoundRobin) {
         quantumCycles = 1;
     }
 }
@@ -34,7 +34,7 @@ Config Config::fromFile(const std::filesystem::path& file) {
         if (key == "num-cpu") {
             cfg.cpuCount = std::stoul(value);
         } else if (key == "scheduler") {
-            cfg.scheduler = (value == "fcfs") ? Scheduler::FCFS : Scheduler::RoundRobin;
+            cfg.scheduler = (value == "fcfs") ? SchedulingAlgorithm::FCFS : SchedulingAlgorithm::RoundRobin;
         } else if (key == "quantum-cycles") {
             cfg.quantumCycles = std::stoul(value);
         } else if (key == "batch-process-freq") {
