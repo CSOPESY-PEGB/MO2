@@ -3,33 +3,39 @@
 #include <chrono>
 #include <functional>
 #include <string>
+#include <vector>
+#include <optional>
+#include <memory>
 
 namespace osemu {
 
-struct PCB {
-    explicit PCB(std::string procName, size_t totalLines);
+    // MODIFIED: Inherit from std::enable_shared_from_this
+    class PCB : public std::enable_shared_from_this<PCB> {
+    public:
+        // This is needed for std::unordered_set. We will stop using it soon.
+        struct Hasher {
+            std::size_t operator()(const PCB& p) const {
+                return std::hash<std::string>()(p.processName);
+            }
+        };
+        bool operator==(const PCB& other) const {
+            return processName == other.processName;
+        }
 
-    void step();
-    bool isComplete() const;
-    std::string status() const;
 
-    std::string processName;
-    size_t currentInstruction{0};
-    size_t totalInstructions;
-    std::chrono::system_clock::time_point creationTime;
-};
+        PCB(std::string procName, size_t totalLines);
 
-inline bool operator==(const PCB& a, const PCB& b) noexcept {
-    return a.processName == b.processName;
-}
+        void step();
+        bool isComplete() const;
+        std::string status() const;
 
-}
+        std::string processName;
+        size_t currentInstruction;
+        size_t totalInstructions;
+        std::chrono::system_clock::time_point creationTime;
 
-namespace std {
-template<>
-struct hash<osemu::PCB> {
-    size_t operator()(const osemu::PCB& pcb) const noexcept {
-        return std::hash<std::string>()(pcb.processName);
-    }
-};
+        // NEW: State tracking
+        std::optional<int> assignedCore;
+        std::chrono::system_clock::time_point finishTime;
+    };
 }
