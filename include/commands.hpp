@@ -8,6 +8,7 @@ namespace osemu {
 enum class Commands {
     Initialize,
     Screen,
+    ScreenLs,
     SchedulerTest,
     SchedulerStop,
     ReportUtil,
