@@ -43,18 +43,23 @@ private:
         }
     }
 
+
     void execute_process(std::shared_ptr<PCB> pcb) {
         pcb->assignedCore = m_core_id;
         m_scheduler.move_to_running(pcb);
 
         std::ofstream log_file(pcb->processName + ".txt");
 
+        // FCFS: Run to completion
         while (!pcb->isComplete()) {
             pcb->step();
 
             auto now = std::chrono::system_clock::now();
             log_file << std::format("({:%m/%d/%Y %I:%M:%S%p}) Core:{} \"Hello world from {}!\"\n",
                                    now, m_core_id, pcb->processName);
+
+            // to slow down simulation
+            std::this_thread::sleep_for(std::chrono::milliseconds(100)); // Sleep for 10ms
         }
 
         pcb->finishTime = std::chrono::system_clock::now();
@@ -68,13 +73,11 @@ private:
 };
 
 
-// --- Scheduler Implementation ---
-// Now we define the methods for the Scheduler class itself
 
 Scheduler::Scheduler() : m_running(false) {}
 
 Scheduler::~Scheduler() {
-    if (m_running.load()) { // Use .load() for atomics for clarity
+    if (m_running.load()) {
         stop();
     }
 }
@@ -109,7 +112,7 @@ void Scheduler::submit_process(std::shared_ptr<PCB> pcb) {
     m_ready_queue.push(std::move(pcb));
 }
 
-void Scheduler::print_status() {
+void Scheduler::print_status() const{
     std::cout << "----------------------------------------------------------------\n";
     std::cout << "Running processes:\n";
     {

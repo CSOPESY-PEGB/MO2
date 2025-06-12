@@ -9,20 +9,8 @@
 
 namespace osemu {
 
-    // MODIFIED: Inherit from std::enable_shared_from_this
     class PCB : public std::enable_shared_from_this<PCB> {
     public:
-        // This is needed for std::unordered_set. We will stop using it soon.
-        struct Hasher {
-            std::size_t operator()(const PCB& p) const {
-                return std::hash<std::string>()(p.processName);
-            }
-        };
-        bool operator==(const PCB& other) const {
-            return processName == other.processName;
-        }
-
-
         PCB(std::string procName, size_t totalLines);
 
         void step();

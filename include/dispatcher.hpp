@@ -7,10 +7,14 @@
 #include "commands.hpp"
 #include "config.hpp"
 #include "process_control_block.hpp"
-
 namespace osemu {
-
-void dispatch(Commands cmd, std::vector<std::string>& args, Config& cfg,
-              std::unordered_set<PCB>& procs, bool& screenSession);
+    class Config;
+    class Scheduler;
+}
+namespace osemu {
+    void dispatch(Commands cmd,
+              std::vector<std::string>& args,
+              Config& cfg,
+              Scheduler& scheduler);
 
 }

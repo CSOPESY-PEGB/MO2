@@ -2,13 +2,10 @@
 
 #include <iostream>
 #include <string>
-#include <unordered_set>
 #include <vector>
 
-#include "commands.hpp"
-#include "console.hpp"
-#include "parser.hpp"
-
+#include "scheduler.hpp"
+#include "process_control_block.hpp"
 namespace osemu {
 
 namespace {
@@ -33,27 +30,21 @@ ScreenCommand parse_command(const std::string& cmd) {
     return ScreenCommand::Unknown;
 }
 
-bool create_process(const std::string& process_name, std::unordered_set<PCB>& processes) {
+void create_process(const std::string& process_name, Scheduler& scheduler) {
     try {
-        PCB pcb(process_name, 100);
-        if (!processes.insert(pcb).second) {
-            std::cerr << "Process already exists: " << process_name << "\n";
-            return false;
-        }
-        std::cout << "Process " << pcb.processName << " created\n";
-        return true;
+        // Create a shared_ptr, as required by our system
+        auto pcb = std::make_shared<PCB>(process_name, 100);
+        scheduler.submit_process(pcb);
     } catch (const std::exception& e) {
         std::cerr << "Error creating process: " << e.what() << "\n";
-        return false;
     }
 }
 
 }
 
-void screen(std::vector<std::string>& args,
-            std::unordered_set<PCB>& processes,
-            bool& screenSession) {
-    if (args.size() != EXPECTED_ARGS_COUNT) {
+    void screen(std::vector<std::string>& args, Scheduler& scheduler) {
+    // The command should be "screen -s <name>", so we expect 2 arguments after "screen"
+    if (args.size() != 2) {
         display_usage();
         return;
     }
@@ -63,47 +54,12 @@ void screen(std::vector<std::string>& args,
 
     switch (cmd) {
         case ScreenCommand::Start:
-            create_process(name, processes);
+            create_process(name, scheduler);
             break;
 
-        case ScreenCommand::Resume: {
-            PCB probe(name, 0);
-            auto it = processes.find(probe);
-            if (it == processes.end()) {
-                std::cout << "Couldn't find process named: " << name << "\n";
-                break;
-            }
-
-            screenSession = true;
-            std::cout << "\x1b[2J\x1b[H";
-            const PCB& pcb = *it;
-            std::cout << "Resumed Process: " << pcb.status() << "\n";
-
-            std::string line;
-            while (screenSession && (std::cout << "~ ") && std::getline(std::cin, line)) {
-                auto tokens = parse_tokens(line);
-                if (tokens.empty()) continue;
-
-                try {
-                    Commands c = from_str(tokens.front());
-                    tokens.erase(tokens.begin());
-
-                    if (c == Commands::Exit) {
-                        std::cout << "Exiting session for process: " << pcb.processName << "\n";
-                        screenSession = false;
-                        std::cout << "\x1b[2J\x1b[H";
-                        console_prompt();
-                    } else {
-                        std::cout << "Unhandled command in screen session.\n";
-                    }
-                } catch (const std::exception& ex) {
-                    std::cerr << ex.what() << "\n";
-                }
-            }
-            break;
-        }
-
+        case ScreenCommand::Unknown:
         default:
+            std::cout << "Unknown screen command: " << args[0] << "\n";
             display_usage();
             break;
     }
