@@ -1,45 +1,40 @@
+#ifndef OSEMU_THREAD_SAFE_QUEUE_H_
+#define OSEMU_THREAD_SAFE_QUEUE_H_
 
-#ifndef THREAD_SAFE_QUEUE_H
-#define THREAD_SAFE_QUEUE_H
-
-#include <queue>
-#include <mutex>
 #include <condition_variable>
 #include <memory>
+#include <mutex>
+#include <queue>
 
-// thread_safe queue for holding std::shared_ptr<PCB>
-// this is in the header because it's a template
-template<typename T>
-class ThreadSafeQueue{
-public:
-    // Adds an item to the back of the queue.
-    void push(T value) {
-        std::lock_guard<std::mutex> lock(m_mutex);         // Lock the mutex to ensure only one thread can modify the queue at a time
-        m_queue.push(std::move(value));         // Add the item to the underlying std::queue.
-        m_cond.notify_one();         // Notify one waiting thread that an item is now available.
-    }
+// A thread-safe queue for holding any type T.
+// This is a template class, so the implementation is in the header.
+template <typename T>
+class ThreadSafeQueue {
+ public:
+  // Adds an item to the back of the queue.
+  void push(T value) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    queue_.push(std::move(value));
+    cond_.notify_one();
+  }
 
-    // Waits until an item is available, then removes it from the front and gives it to the caller.
-    void wait_and_pop(T& value) {
-        std::unique_lock<std::mutex> lock(m_mutex);   // Use a unique_lock because we need to work with the condition variable.
+  // Waits until an item is available, then removes it from the front and gives
+  // it to the caller.
+  void wait_and_pop(T& value) {
+    std::unique_lock<std::mutex> lock(mutex_);
+    // The thread will wait() on the condition variable and go to sleep until it
+    // is notified AND the condition in the lambda (the queue is not empty) is
+    // true. This prevents spurious wakeups.
+    cond_.wait(lock, [this] { return !queue_.empty(); });
 
-        // thread will wait() on the condition variable and goes tto sleep until it is notified
-        // AND the condition in the lambda (the queue is not empty) is true.
-        // This prevents spurious wakeups - a thread wakes up from waiting on a condition variable and finds that the
-        // condition is still unsatisfied.
-        m_cond.wait(lock, [this]{ return !m_queue.empty(); });
+    value = std::move(queue_.front());
+    queue_.pop();
+  }
 
-        // the lock is held and we know the queue has at least one item
-        value = std::move(m_queue.front());
-        m_queue.pop();
-    }
-
-private:
-    mutable std::mutex m_mutex;
-    std::queue<T> m_queue;
-    std::condition_variable m_cond;
+ private:
+  mutable std::mutex mutex_;
+  std::queue<T> queue_;
+  std::condition_variable cond_;
 };
 
-
-
-#endif //THREAD_SAFE_QUEUE_H
+#endif  // OSEMU_THREAD_SAFE_QUEUE_H_

@@ -1,20 +1,19 @@
-#pragma once
+#ifndef OSEMU_DISPATCHER_H_
+#define OSEMU_DISPATCHER_H_
 
 #include <string>
-#include <unordered_set>
 #include <vector>
 
 #include "commands.hpp"
-#include "config.hpp"
-#include "process_control_block.hpp"
+
 namespace osemu {
-    class Config;
-    class Scheduler;
-}
-namespace osemu {
-    void dispatch(Commands cmd,
-              std::vector<std::string>& args,
-              Config& cfg,
+
+class Config;
+class Scheduler;
+
+void dispatch(Commands cmd, std::vector<std::string>& args, Config& cfg,
               Scheduler& scheduler);
 
-}
+}  // namespace osemu
+
+#endif  // OSEMU_DISPATCHER_H_

@@ -1,46 +1,48 @@
-#pragma once
+#ifndef OSEMU_SCHEDULER_H_
+#define OSEMU_SCHEDULER_H_
 
-
-#include "config.hpp"
-#include "process_control_block.hpp"
-#include "thread_safe_queue.hpp"
-#include <vector>
+#include <atomic>
 #include <memory>
 #include <mutex>
-#include <atomic>
+#include <vector>
+
+#include "process_control_block.hpp"
+#include "thread_safe_queue.hpp"
 
 namespace osemu {
-    class Scheduler {
-    public:
-        Scheduler();
-        ~Scheduler();
 
-        void start(const Config& config);
-        void stop();
+class Config;
 
-        void submit_process(std::shared_ptr<PCB> pcb);
-        void print_status() const;
+class Scheduler {
+ public:
+  Scheduler();
+  ~Scheduler();
 
-    private:
-        friend class CPUWorker;
-        // Forward declare the CPUWorker class
-        class CPUWorker;
+  void start(const Config& config);
+  void stop();
 
-        // State
-        std::atomic<bool> m_running;
-        std::vector<std::unique_ptr<CPUWorker>> m_cpu_workers;
+  void submit_process(std::shared_ptr<PCB> pcb);
+  void print_status() const;
 
-        // Queues and Lists
-        ThreadSafeQueue<std::shared_ptr<PCB>> m_ready_queue;
+ private:
+  friend class CPUWorker;
+  class CPUWorker;
 
-        mutable std::mutex m_running_mutex;
-        mutable std::mutex m_finished_mutex;
+  void move_to_running(std::shared_ptr<PCB> pcb);
+  void move_to_finished(std::shared_ptr<PCB> pcb);
 
-        std::vector<std::shared_ptr<PCB>> m_running_processes;
-        std::vector<std::shared_ptr<PCB>> m_finished_processes;
+  std::atomic<bool> running_;
+  std::vector<std::unique_ptr<CPUWorker>> cpu_workers_;
 
-        // Internal methods for workers to use
-        void move_to_running(std::shared_ptr<PCB> pcb);
-        void move_to_finished(std::shared_ptr<PCB> pcb);
-    };
-}
+  ThreadSafeQueue<std::shared_ptr<PCB>> ready_queue_;
+
+  mutable std::mutex running_mutex_;
+  mutable std::mutex finished_mutex_;
+
+  std::vector<std::shared_ptr<PCB>> running_processes_;
+  std::vector<std::shared_ptr<PCB>> finished_processes_;
+};
+
+}  // namespace osemu
+
+#endif  // OSEMU_SCHEDULER_H_
