@@ -2,6 +2,7 @@
 #include "screen.hpp"
 
 #include <atomic>  // For std::atomic_bool
+#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <memory>
