@@ -33,10 +33,13 @@
   <component name="ChangeListManager">
     <list default="true" id="5ef9b151-83aa-45ce-99e1-040a9d6bc75d" name="Changes" comment="">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+<<<<<<< HEAD
       <change beforePath="$PROJECT_DIR$/config.txt" beforeDir="false" afterPath="$PROJECT_DIR$/config.txt" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/include/scheduler.hpp" beforeDir="false" afterPath="$PROJECT_DIR$/include/scheduler.hpp" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/dispatcher.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/dispatcher.cpp" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/scheduler.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/scheduler.cpp" afterDir="false" />
+=======
+>>>>>>> 8299c69 (fixed stuff)
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -119,7 +122,11 @@
     "node.js.selected.package.eslint": "(autodetect)",
     "node.js.selected.package.tslint": "(autodetect)",
     "nodejs_package_manager_path": "npm",
+<<<<<<< HEAD
     "settings.editor.selected.configurable": "preferences.sourceCode.C/C++",
+=======
+    "settings.editor.selected.configurable": "pyconsole",
+>>>>>>> 8299c69 (fixed stuff)
     "vue.rearranger.settings.migration": "true"
   }
 }]]></component>
@@ -154,6 +161,7 @@
       <workItem from="1747849545355" duration="11923000" />
       <workItem from="1749739075890" duration="1242000" />
       <workItem from="1749777222816" duration="993000" />
+      <workItem from="1750343198376" duration="49000" />
     </task>
     <servers />
   </component>

@@ -4,10 +4,12 @@
 #include <atomic>
 #include <memory>
 #include <mutex>
+#include <thread>
 #include <vector>
 
 #include "process_control_block.hpp"
 #include "thread_safe_queue.hpp"
+#include "instruction_generator.hpp"
 
 namespace osemu {
 
@@ -23,6 +25,14 @@ class Scheduler {
 
   void submit_process(std::shared_ptr<PCB> pcb);
   void print_status() const;
+  
+  // Process generation
+  void start_batch_generation(const Config& config);
+  void stop_batch_generation();
+  bool is_generating() const { return batch_generating_; }
+  
+  // Report utilities
+  void generate_report(const std::string& filename = "csopesy-log.txt") const;
 
   void start_generator(const Config& config);
   void stop_generator();
@@ -49,6 +59,12 @@ class Scheduler {
 
   std::vector<std::shared_ptr<PCB>> running_processes_;
   std::vector<std::shared_ptr<PCB>> finished_processes_;
+  
+  // Batch process generation
+  std::atomic<bool> batch_generating_;
+  std::unique_ptr<std::thread> batch_generator_thread_;
+  InstructionGenerator instruction_generator_;
+  int process_counter_;
 };
 
 }  // namespace osemu

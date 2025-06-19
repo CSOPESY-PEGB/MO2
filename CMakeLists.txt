@@ -9,5 +9,9 @@ add_executable(sim ${SRC}
         src/process_control_block.cpp
         include/thread_safe_queue.hpp
         include/scheduler.hpp
-        src/scheduler.cpp)
+        src/scheduler.cpp
+        include/instruction_parser.hpp
+        src/instruction_parser.cpp
+        include/instruction_generator.hpp
+        src/instruction_generator.cpp)
 target_include_directories(sim PUBLIC include)

@@ -47,11 +47,17 @@ class Scheduler::CPUWorker {
     std::ofstream log_file(pcb->processName + ".txt");
 
     while (!pcb->isComplete()) {
+      // Clear previous logs to get only new output from this step
+      const auto& logs_before = pcb->getExecutionLogs();
+      size_t logs_count_before = logs_before.size();
+      
       pcb->step();
-      auto now = std::chrono::system_clock::now();
-      log_file << std::format(
-          "({:%m/%d/%Y %I:%M:%S%p}) Core:{} \"Hello world from {}!\"\n", now,
-          core_id_, pcb->processName);
+      
+      // Get new logs produced by this step
+      const auto& logs_after = pcb->getExecutionLogs();
+      for (size_t i = logs_count_before; i < logs_after.size(); ++i) {
+        log_file << logs_after[i] << " Core:" << core_id_ << std::endl;
+      }
 
       std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
@@ -65,10 +71,13 @@ class Scheduler::CPUWorker {
   std::atomic<bool>& system_running_;
 };
 
-Scheduler::Scheduler() : running_(false) {}
+Scheduler::Scheduler() : running_(false), batch_generating_(false), process_counter_(0) {}
 
 Scheduler::~Scheduler() {
-  if (running_.load() || m_generator_running.load()) {
+  if (batch_generating_.load()) {
+    stop_batch_generation();
+  }
+  if (running_.load()) {
     stop();
   }
 }
@@ -84,7 +93,9 @@ void Scheduler::start(const Config& config) {
 }
 
 void Scheduler::stop() {
-  stop_generator();
+  if (batch_generating_.load()) {
+    stop_batch_generation();
+  }
 
   if (!running_.exchange(false)) {
     return;
@@ -147,56 +158,100 @@ void Scheduler::move_to_finished(std::shared_ptr<PCB> pcb) {
   }
 }
 
-void Scheduler::start_generator(const Config& config) {
-  if (m_generator_running.load()) {
-    std::cout << "Process generator is already running.\n";
+void Scheduler::start_batch_generation(const Config& config) {
+  if (batch_generating_.load()) {
+    std::cout << "Batch process generation is already running." << std::endl;
     return;
   }
-
-  m_generator_running = true;
-  m_generator_thread = std::thread(&Scheduler::generator_loop, this, config);
-  std::cout << "Continuous process generator started.\n";
-}
-
-void Scheduler::stop_generator() {
-  if (!m_generator_running.exchange(false)) { // exchange checks and sets atomically
-    return; // It was already stopped
-  }
-
-  if (m_generator_thread.joinable()) {
-    m_generator_thread.join();
-  }
-  std::cout << "Continuous process generator stopped.\n";
-}
-
-
-
-void Scheduler::generator_loop(Config config) {
-  std::random_device rd;
-  std::mt19937 gen(rd());
-  std::uniform_int_distribution<> distrib(config.minInstructions, config.maxInstructions);
-  static std::atomic<int> process_id_counter = 1;
-
-  while (m_generator_running.load()) {
-    const int batch_size = 2;
-    std::cout << "[Generator] Creating a batch of " << batch_size << " processes...\n";
-
-    for (int i = 0; i < batch_size; ++i) {
-      if (!m_generator_running.load()) break;
-
-      int current_id = process_id_counter.fetch_add(1);
-      std::string name = std::format("proc{:02}", current_id);
-
-      size_t instructions = distrib(gen);
-
-      auto pcb = std::make_shared<PCB>(name, instructions);
-
-      this->submit_process(pcb);
+  
+  batch_generating_ = true;
+  batch_generator_thread_ = std::make_unique<std::thread>([this, config]() {
+    uint32_t cpu_cycles = 0;
+    
+    while (batch_generating_.load()) {
+      cpu_cycles++;
+      
+      // Generate a new process every batch_process_freq cycles
+      if (cpu_cycles % config.processGenFrequency == 0) {
+        ++process_counter_;
+        std::string process_name = "p" + std::string(2 - std::to_string(process_counter_).length(), '0') + std::to_string(process_counter_);
+        
+        // Generate random instructions based on config
+        auto instructions = instruction_generator_.generateRandomProgram(
+          config.minInstructions, 
+          config.maxInstructions, 
+          process_name
+        );
+        
+        auto pcb = std::make_shared<PCB>(process_name, instructions);
+        submit_process(pcb);
+        
+        std::cout << "Generated process: " << process_name << " with " 
+                  << instructions.size() << " instructions." << std::endl;
+      }
+      
+      // CPU cycle timing (simplified)
+      std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
+  });
+  
+  std::cout << "Started batch process generation." << std::endl;
+}
 
-    // Use the frequency from the Config file
-    std::this_thread::sleep_for(std::chrono::seconds(config.processGenFrequency));
+void Scheduler::stop_batch_generation() {
+  if (!batch_generating_.exchange(false)) {
+    return;
   }
+  
+  if (batch_generator_thread_ && batch_generator_thread_->joinable()) {
+    batch_generator_thread_->join();
+  }
+  batch_generator_thread_.reset();
+  
+  std::cout << "Stopped batch process generation." << std::endl;
+}
+
+void Scheduler::generate_report(const std::string& filename) const {
+  std::ofstream report_file(filename);
+  
+  if (!report_file.is_open()) {
+    std::cerr << "Failed to create report file: " << filename << std::endl;
+    return;
+  }
+  
+  // Calculate CPU utilization
+  size_t total_cores = cpu_workers_.size();
+  size_t cores_used = 0;
+  
+  {
+    std::lock_guard<std::mutex> lock(running_mutex_);
+    cores_used = running_processes_.size();
+  }
+  
+  double cpu_utilization = total_cores > 0 ? (static_cast<double>(cores_used) / total_cores) * 100.0 : 0.0;
+  
+  report_file << "CPU utilization: " << static_cast<int>(cpu_utilization) << "%\n";
+  report_file << "Cores used: " << cores_used << "\n";
+  report_file << "Cores available: " << (total_cores - cores_used) << "\n\n";
+  
+  report_file << "Running processes:\n";
+  {
+    std::lock_guard<std::mutex> lock(running_mutex_);
+    for (const auto& pcb : running_processes_) {
+      report_file << pcb->status() << "\n";
+    }
+  }
+  
+  report_file << "\nFinished processes:\n";
+  {
+    std::lock_guard<std::mutex> lock(finished_mutex_);
+    for (const auto& pcb : finished_processes_) {
+      report_file << pcb->status() << "\n";
+    }
+  }
+  
+  report_file.close();
+  std::cout << "Report generated at " << filename << "!" << std::endl;
 }
 
 }  // namespace osemu

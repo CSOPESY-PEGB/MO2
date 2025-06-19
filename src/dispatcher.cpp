@@ -30,15 +30,22 @@ void dispatch(Commands cmd, std::vector<std::string>& args, Config& cfg,
       break;
 
     case Commands::SchedulerStart:
-      scheduler.start_generator(cfg);
+      if (scheduler.is_generating()) {
+        std::cout << "Scheduler is already generating processes.\n";
+      } else {
+        scheduler.start_batch_generation(cfg);
+      }
       break;
+      
     case Commands::SchedulerStop:
-      scheduler.stop_generator();
+      if (!scheduler.is_generating()) {
+        std::cout << "Scheduler is not currently generating processes.\n";
+      } else {
+        scheduler.stop_batch_generation();
+      }
       break;
-
     case Commands::ReportUtil:
-      std::cout << "TODO: Implement command '" << static_cast<int>(cmd)
-                << "'\n";
+      scheduler.generate_report();
       break;
 
     case Commands::Clear:

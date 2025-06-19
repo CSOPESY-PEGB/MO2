@@ -5,25 +5,42 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <vector>
+#include "instruction_parser.hpp"
 
 namespace osemu {
 
 class PCB : public std::enable_shared_from_this<PCB> {
  public:
   PCB(std::string procName, size_t totalLines);
+  PCB(std::string procName, const std::vector<Expr>& instructions);
 
   void step();
   bool isComplete() const;
   std::string status() const;
+  
+  // Instruction execution
+  bool executeCurrentInstruction();
+  const std::vector<std::string>& getExecutionLogs() const;
+  
+  // Sleep handling
+  void setSleepCycles(uint16_t cycles);
+  bool isSleeping() const;
+  void decrementSleepCycles();
 
   std::string processName;
   size_t currentInstruction;
   size_t totalInstructions;
   std::chrono::system_clock::time_point creationTime;
 
-  // NEW: State tracking
+  // State tracking
   std::optional<int> assignedCore;
   std::chrono::system_clock::time_point finishTime;
+  
+  // Instruction execution state
+  std::vector<Expr> instructions;
+  InstructionEvaluator evaluator;
+  uint16_t sleepCyclesRemaining;
 };
 
 }  // namespace osemu

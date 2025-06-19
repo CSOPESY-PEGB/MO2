@@ -9,6 +9,8 @@ set(OLD_GLOB
   "/Users/armaine/documents/Week2-OSEmulator/src/config.cpp"
   "/Users/armaine/documents/Week2-OSEmulator/src/console.cpp"
   "/Users/armaine/documents/Week2-OSEmulator/src/dispatcher.cpp"
+  "/Users/armaine/documents/Week2-OSEmulator/src/instruction_generator.cpp"
+  "/Users/armaine/documents/Week2-OSEmulator/src/instruction_parser.cpp"
   "/Users/armaine/documents/Week2-OSEmulator/src/main.cpp"
   "/Users/armaine/documents/Week2-OSEmulator/src/parser.cpp"
   "/Users/armaine/documents/Week2-OSEmulator/src/process_control_block.cpp"

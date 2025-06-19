@@ -10,16 +10,33 @@ PCB::PCB(std::string procName, size_t totalLines)
       currentInstruction(0),
       totalInstructions(totalLines),
       creationTime(std::chrono::system_clock::now()),
-      assignedCore(
-          std::nullopt)  // Good practice to initialize optional to nullopt
+      assignedCore(std::nullopt),
+      sleepCyclesRemaining(0)
 {
-  // The finishTime is not initialized here, only when the process actually
-  // finishes.
+}
+
+PCB::PCB(std::string procName, const std::vector<Expr>& instrs)
+    : processName(std::move(procName)),
+      currentInstruction(0),
+      totalInstructions(instrs.size()),
+      creationTime(std::chrono::system_clock::now()),
+      assignedCore(std::nullopt),
+      sleepCyclesRemaining(0),
+      instructions(instrs)  // Use copy constructor
+{
 }
 
 // Definition for step()
 void PCB::step() {
+  if (isSleeping()) {
+    decrementSleepCycles();
+    return;
+  }
+  
   if (currentInstruction < totalInstructions) {
+    if (!instructions.empty()) {
+      executeCurrentInstruction();
+    }
     ++currentInstruction;
   }
 }
@@ -57,6 +74,65 @@ std::string PCB::status() const {
   }
 
   return oss.str();
+}
+
+bool PCB::executeCurrentInstruction() {
+  if (currentInstruction >= instructions.size()) {
+    return false;
+  }
+  
+  try {
+    const auto& instr = instructions[currentInstruction];
+    
+    // Handle SLEEP instruction specially
+    if (instr.type == Expr::CALL && instr.var_name == "SLEEP" && instr.atom_value) {
+      uint16_t cycles = 0;
+      if (instr.atom_value->type == Atom::NUMBER) {
+        cycles = instr.atom_value->number_value;
+      } else if (instr.atom_value->type == Atom::NAME) {
+        // Resolve variable - for now assume 0 if undefined
+        cycles = 0;
+      }
+      setSleepCycles(cycles);
+      return true;
+    }
+    
+    // Handle PRINT instruction with process name
+    if (instr.type == Expr::CALL && instr.var_name == "PRINT" && instr.atom_value) {
+      // Create a modified instruction with default message if needed
+      Expr print_instr = instr;
+      if (instr.atom_value->type == Atom::STRING && instr.atom_value->string_value.empty()) {
+        print_instr.atom_value = std::make_unique<Atom>("Hello world from " + processName + "!", Atom::STRING);
+      }
+      evaluator.handle_print(*print_instr.atom_value, processName);
+      return true;
+    }
+    
+    // Execute other instructions normally
+    evaluator.evaluate(instr);
+    return true;
+  } catch (const std::exception& e) {
+    // Log error or handle gracefully
+    return false;
+  }
+}
+
+const std::vector<std::string>& PCB::getExecutionLogs() const {
+  return evaluator.get_output_log();
+}
+
+void PCB::setSleepCycles(uint16_t cycles) {
+  sleepCyclesRemaining = cycles;
+}
+
+bool PCB::isSleeping() const {
+  return sleepCyclesRemaining > 0;
+}
+
+void PCB::decrementSleepCycles() {
+  if (sleepCyclesRemaining > 0) {
+    --sleepCyclesRemaining;
+  }
 }
 
 }  // namespace osemu
