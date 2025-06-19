@@ -1,17 +1,18 @@
 // screen.cpp
 #include "screen.hpp"
 
-#include <iostream>
+#include <atomic>  // For std::atomic_bool
+#include <filesystem>
 #include <fstream>
-#include <string>
-#include <vector>
+#include <iostream>
 #include <memory>
-#include <thread> // For std::thread and sleep_for
-#include <atomic> // For std::atomic_bool
+#include <string>
+#include <thread>  // For std::thread and sleep_for
+#include <vector>
 
-#include "scheduler.hpp"
+#include "console.hpp"  // For the prompt after exiting
 #include "process_control_block.hpp"
-#include "console.hpp" // For the prompt after exiting
+#include "scheduler.hpp"
 
 namespace osemu {
 namespace {
