@@ -5,7 +5,7 @@
 namespace osemu {
 
 void console_prompt() {
-    std::cout << R"(
+  std::cout << R"(
 ░▒▓███████▓▒░░▒▓████████▓▒░▒▓██████▓▒░░▒▓███████▓▒░
 ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░     ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░
 ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░     ░▒▓█▓▒░      ░▒▓█▓▒░░▒▓█▓▒░
@@ -20,4 +20,4 @@ void console_prompt() {
   std::cout << "\e[3;33mType 'exit' to quit, 'clear' to clear the screen.\e[0m" << std::endl;
 }
 
-}
+}  // namespace osemu

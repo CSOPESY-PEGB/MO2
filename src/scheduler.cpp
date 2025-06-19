@@ -1,4 +1,5 @@
 #include "scheduler.hpp"
+
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -7,6 +8,7 @@
 #include <iostream>
 #include <memory>
 #include <thread>
+
 #include "config.hpp"
 #include "process_control_block.hpp"
 
@@ -144,4 +146,4 @@ void Scheduler::move_to_finished(std::shared_ptr<PCB> pcb) {
   }
 }
 
-}
+}  // namespace osemu
