@@ -32,13 +32,11 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="5ef9b151-83aa-45ce-99e1-040a9d6bc75d" name="Changes" comment="">
-      <change beforePath="$PROJECT_DIR$/.idea/editor.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/editor.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/config.txt" beforeDir="false" afterPath="$PROJECT_DIR$/config.txt" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/include/commands.hpp" beforeDir="false" afterPath="$PROJECT_DIR$/include/commands.hpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/commands.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/commands.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/include/scheduler.hpp" beforeDir="false" afterPath="$PROJECT_DIR$/include/scheduler.hpp" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/dispatcher.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/dispatcher.cpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/main.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/main.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/scheduler.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/scheduler.cpp" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />

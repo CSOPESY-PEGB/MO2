@@ -9,7 +9,6 @@
 #include "screen.hpp"
 
 namespace osemu {
-void generate_test_processes(Scheduler& scheduler, const Config& cfg);
 
 void dispatch(Commands cmd, std::vector<std::string>& args, Config& cfg,
               Scheduler& scheduler) {
@@ -31,10 +30,12 @@ void dispatch(Commands cmd, std::vector<std::string>& args, Config& cfg,
       break;
 
     case Commands::SchedulerStart:
-      std::cout << "Loading test workload...\n";
-      generate_test_processes(scheduler, cfg);
+      scheduler.start_generator(cfg);
       break;
     case Commands::SchedulerStop:
+      scheduler.stop_generator();
+      break;
+
     case Commands::ReportUtil:
       std::cout << "TODO: Implement command '" << static_cast<int>(cmd)
                 << "'\n";
@@ -50,26 +51,7 @@ void dispatch(Commands cmd, std::vector<std::string>& args, Config& cfg,
       break;
   }
 }
-void generate_test_processes(osemu::Scheduler& scheduler, const Config& cfg) {
-  const int process_count = 10;
 
-  std::cout << "Generating " << process_count << " test processes...\n";
-
-  // Set up random number generation
-  std::random_device rd;
-  std::mt19937 gen(rd());
-  std::uniform_int_distribution<> distrib(cfg.minInstructions, cfg.maxInstructions);
-
-  for (int i = 1; i <= process_count; ++i) {
-    size_t instructions = distrib(gen);
-    std::string name = std::format("process{:02}", i);
-
-    auto pcb = std::make_shared<osemu::PCB>(name, instructions);
-    std::cout << "  -> Submitting " << name << " with " << instructions
-              << " instructions.\n";
-    scheduler.submit_process(pcb);
-  }
-}
 
 
 

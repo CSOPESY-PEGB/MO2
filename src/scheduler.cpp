@@ -1,5 +1,4 @@
 #include "scheduler.hpp"
-
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -8,7 +7,7 @@
 #include <iostream>
 #include <memory>
 #include <thread>
-
+#include <random>
 #include "config.hpp"
 #include "process_control_block.hpp"
 
@@ -69,7 +68,7 @@ class Scheduler::CPUWorker {
 Scheduler::Scheduler() : running_(false) {}
 
 Scheduler::~Scheduler() {
-  if (running_.load()) {
+  if (running_.load() || m_generator_running.load()) {
     stop();
   }
 }
@@ -85,6 +84,8 @@ void Scheduler::start(const Config& config) {
 }
 
 void Scheduler::stop() {
+  stop_generator();
+
   if (!running_.exchange(false)) {
     return;
   }
@@ -143,6 +144,58 @@ void Scheduler::move_to_finished(std::shared_ptr<PCB> pcb) {
   {
     std::lock_guard<std::mutex> lock(finished_mutex_);
     finished_processes_.push_back(std::move(pcb));
+  }
+}
+
+void Scheduler::start_generator(const Config& config) {
+  if (m_generator_running.load()) {
+    std::cout << "Process generator is already running.\n";
+    return;
+  }
+
+  m_generator_running = true;
+  m_generator_thread = std::thread(&Scheduler::generator_loop, this, config);
+  std::cout << "Continuous process generator started.\n";
+}
+
+void Scheduler::stop_generator() {
+  if (!m_generator_running.exchange(false)) { // exchange checks and sets atomically
+    return; // It was already stopped
+  }
+
+  if (m_generator_thread.joinable()) {
+    m_generator_thread.join();
+  }
+  std::cout << "Continuous process generator stopped.\n";
+}
+
+
+
+void Scheduler::generator_loop(Config config) {
+  std::random_device rd;
+  std::mt19937 gen(rd());
+  std::uniform_int_distribution<> distrib(config.minInstructions, config.maxInstructions);
+  static std::atomic<int> process_id_counter = 1;
+
+  while (m_generator_running.load()) {
+    const int batch_size = 2;
+    std::cout << "[Generator] Creating a batch of " << batch_size << " processes...\n";
+
+    for (int i = 0; i < batch_size; ++i) {
+      if (!m_generator_running.load()) break;
+
+      int current_id = process_id_counter.fetch_add(1);
+      std::string name = std::format("proc{:02}", current_id);
+
+      size_t instructions = distrib(gen);
+
+      auto pcb = std::make_shared<PCB>(name, instructions);
+
+      this->submit_process(pcb);
+    }
+
+    // Use the frequency from the Config file
+    std::this_thread::sleep_for(std::chrono::seconds(config.processGenFrequency));
   }
 }
 
