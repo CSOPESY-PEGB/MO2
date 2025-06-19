@@ -60,7 +60,6 @@ int main() {
         }
     }
 
-    scheduler.stop();
 
     std::cout << "Emulator has shut down cleanly." << std::endl;
     return 0;

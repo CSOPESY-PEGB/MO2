@@ -35,7 +35,7 @@ namespace osemu {
                 break;
 
             case Commands::Exit:
-                
+                scheduler.stop();
                 break;
         }
     }
