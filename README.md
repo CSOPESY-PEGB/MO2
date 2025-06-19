@@ -19,22 +19,21 @@
 
 ## II. Video Submission
 
--   [ ] **Record MP4:** Compile + run CLI.
--   [ ] **Video Specs:**
-    -   [ ] Seamless, uncut.
-    -   [ ] 480p (min) - 720p (max).
-    -   [ ] Readable IDE font.
-    -   [ ] Max 1GB.
+-   [X] **Record MP4:** Compile + run CLI.
+-   [X] **Video Specs:**
+    -   [X] Seamless, uncut.
+    -   [X] 480p (min) - 720p (max).
+    -   [X] Readable IDE font.
+    -   [X] Max 1GB.
 -   [ ] **Recording Rules:**
-    -   [ ] Show Run/Debug from IDE to start.
-    -   [ ] No code modification during test.
-    -   [ ] Do not exit program to modify code.
-    -   [ ] *Non-compliance invalidates submission.*
+    -   [X] Show Run/Debug from IDE to start.
+    -   [X] No code modification during test.
+    -   [X] Do not exit program to modify code.
+    -   [X] *Non-compliance invalidates submission.*
 
 ## III. F2F Preparation
 
--   [ ] **Start Activity:** Begin work before F2F.
--   [ ] **Minimum Prep:**
+-   [X] **Start Activity:** Begin work before F2F.
+-   [X] **Minimum Prep:**
     -   [x] Boilerplate code.
     -   [ ] Idea of what to write / functions for `main()`.
-
