@@ -4,14 +4,14 @@
 #include <thread>
 #include <iostream>
 #include <fstream>
-#include <chrono> // You were missing this for std::chrono
+#include <chrono> 
 #include <format>
 #include <algorithm>
 
 namespace osemu {
 
-// --- CPUWorker Implementation ---
-// Define the CPUWorker class that was forward-declared in scheduler.hpp
+
+
 class Scheduler::CPUWorker {
 public:
     CPUWorker(int core_id, Scheduler& scheduler, std::atomic<bool>& running)
@@ -31,8 +31,8 @@ private:
     void run() {
         while (m_system_running) {
             std::shared_ptr<PCB> pcb;
-            // The worker needs to access the scheduler's private queue.
-            // This is a bit tricky. We'll make CPUWorker a friend of Scheduler.
+            
+            
             m_scheduler.m_ready_queue.wait_and_pop(pcb);
 
             if (!m_system_running || !pcb) {
@@ -50,7 +50,7 @@ private:
 
         std::ofstream log_file(pcb->processName + ".txt");
 
-        // FCFS: Run to completion
+        
         while (!pcb->isComplete()) {
             pcb->step();
 
@@ -58,8 +58,8 @@ private:
             log_file << std::format("({:%m/%d/%Y %I:%M:%S%p}) Core:{} \"Hello world from {}!\"\n",
                                    now, m_core_id, pcb->processName);
 
-            // to slow down simulation
-            std::this_thread::sleep_for(std::chrono::milliseconds(100)); // Sleep for 10ms
+            
+            std::this_thread::sleep_for(std::chrono::milliseconds(100)); 
         }
 
         pcb->finishTime = std::chrono::system_clock::now();
@@ -92,7 +92,7 @@ void Scheduler::start(const Config& config) {
 }
 
 void Scheduler::stop() {
-    if (!m_running.exchange(false)) { // Prevent double-stopping
+    if (!m_running.exchange(false)) { 
         return;
     }
     
