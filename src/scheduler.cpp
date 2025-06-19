@@ -1,5 +1,4 @@
 #include "scheduler.hpp"
-
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -8,7 +7,6 @@
 #include <iostream>
 #include <memory>
 #include <thread>
-
 #include "config.hpp"
 #include "process_control_block.hpp"
 
@@ -45,12 +43,10 @@ class Scheduler::CPUWorker {
   void execute_process(std::shared_ptr<PCB> pcb) {
     pcb->assignedCore = core_id_;
     scheduler_.move_to_running(pcb);
-
     std::ofstream log_file(pcb->processName + ".txt");
 
     while (!pcb->isComplete()) {
       pcb->step();
-
       auto now = std::chrono::system_clock::now();
       log_file << std::format(
           "({:%m/%d/%Y %I:%M:%S%p}) Core:{} \"Hello world from {}!\"\n", now,
@@ -62,7 +58,6 @@ class Scheduler::CPUWorker {
     pcb->finishTime = std::chrono::system_clock::now();
     scheduler_.move_to_finished(pcb);
   }
-
   int core_id_;
   std::thread thread_;
   Scheduler& scheduler_;
@@ -110,7 +105,8 @@ void Scheduler::submit_process(std::shared_ptr<PCB> pcb) {
 }
 
 void Scheduler::print_status() const {
-  std::cout << "----------------------------------------------------------------\n";
+  std::cout
+      << "----------------------------------------------------------------\n";
   std::cout << "Running processes:\n";
   {
     std::lock_guard<std::mutex> lock(running_mutex_);
@@ -126,7 +122,8 @@ void Scheduler::print_status() const {
       std::cout << pcb->status() << std::endl;
     }
   }
-  std::cout << "----------------------------------------------------------------\n";
+  std::cout
+      << "----------------------------------------------------------------\n";
 }
 
 void Scheduler::move_to_running(std::shared_ptr<PCB> pcb) {
@@ -147,4 +144,4 @@ void Scheduler::move_to_finished(std::shared_ptr<PCB> pcb) {
   }
 }
 
-}  // namespace osemu
+}
