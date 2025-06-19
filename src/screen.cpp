@@ -104,18 +104,21 @@ void create_process(const std::string& process_name, Scheduler& scheduler) {
 enum class ScreenCommand {
     Start,
     Resume,
+    List,
     Unknown
 };
 
 void display_usage() {
     std::cout << "Usage:\n"
               << "  screen -s <name>     Start a new process with the given name.\n"
-              << "  screen -r <name>     View the real-time log of a running process.\n";
+              << "  screen -r <name>     View the real-time log of a running process.\n"
+              << "  screen -ls           List all active processes.\n";
 }
 
 ScreenCommand parse_command(const std::string& cmd) {
     if (cmd == "-s") return ScreenCommand::Start;
     if (cmd == "-r") return ScreenCommand::Resume;
+    if (cmd == "-ls") return ScreenCommand::List;
     return ScreenCommand::Unknown;
 }
 
@@ -123,21 +126,32 @@ ScreenCommand parse_command(const std::string& cmd) {
 
 // This is the main function called by your dispatcher
 void screen(std::vector<std::string>& args, Scheduler& scheduler) {
-    if (args.size() != 2) {
+    if (args.empty()) {
         display_usage();
         return;
     }
 
     const ScreenCommand cmd = parse_command(args[0]);
-    const std::string& name = args[1];
 
     switch (cmd) {
         case ScreenCommand::Start:
-            create_process(name, scheduler);
+            if (args.size() != 2) {
+                display_usage();
+                return;
+            }
+            create_process(args[1], scheduler);
             break;
 
         case ScreenCommand::Resume:
-            view_process_log(name);
+            if (args.size() != 2) {
+                display_usage();
+                return;
+            }
+            view_process_log(args[1]);
+            break;
+
+        case ScreenCommand::List:
+            scheduler.print_status();
             break;
 
         case ScreenCommand::Unknown:

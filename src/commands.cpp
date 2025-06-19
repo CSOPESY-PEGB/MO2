@@ -15,7 +15,6 @@ const CommandMap cmd_map{
     {"report-util", Commands::ReportUtil},
     {"clear", Commands::Clear},
     {"exit", Commands::Exit},
-{"screen-ls", Commands::ScreenLs},
 
 };
 }

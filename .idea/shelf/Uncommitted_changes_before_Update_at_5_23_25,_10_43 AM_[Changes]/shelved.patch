@@ -1,0 +1,244 @@
+Index: src/dispatcher.cpp
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.BaseRevisionTextPatchEP
+<+>#include \"dispatcher.hpp\"\r\n\r\n#include <cstdlib>\r\n#include <iostream>\r\n\r\n#include \"console.hpp\"\r\n#include \"screen.hpp\"\r\n\r\nvoid dispatch(Commands cmd, std::vector<std::string>& args, Config& cfg,\r\n              std::unordered_set<PCB>& procs) {\r\n  switch (cmd) {\r\n    case Commands::Initialize:\r\n      cfg = Config::fromFile(args.empty() ? \"config.txt\" : args[0]);\r\n      break;\r\n    case Commands::SchedulerTest:\r\n    case Commands::Screen:\r\n      screen(args, procs);\r\n    case Commands::SchedulerStop:\r\n    case Commands::ReportUtil:\r\n      std::cout << \"TODO run \" << static_cast<int>(cmd) << '\\n';\r\n      break;\r\n\r\n    case Commands::Clear:\r\n      std::cout << \"\\x1b[2J\\x1b[H\";\r\n      console_prompt();\r\n      break;\r\n\r\n    case Commands::Exit:\r\n      std::exit(0);\r\n  }\r\n}\r\n
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/src/dispatcher.cpp b/src/dispatcher.cpp
+--- a/src/dispatcher.cpp	(revision f551d7b19b3ff39aca60ffe667dea63e9b4fe7d4)
++++ b/src/dispatcher.cpp	(date 1747967735510)
+@@ -15,8 +15,9 @@
+     case Commands::SchedulerTest:
+     case Commands::Screen:
+       screen(args, procs);
++      break;
+     case Commands::SchedulerStop:
+-    case Commands::ReportUtil:
++   case Commands::ReportUtil:
+       std::cout << "TODO run " << static_cast<int>(cmd) << '\n';
+       break;
+ 
+Index: src/main.cpp
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.BaseRevisionTextPatchEP
+<+>#include <iostream>\n\n#include \"commands.hpp\"\n#include \"config.hpp\"\n#include \"console.hpp\"\n#include \"dispatcher.hpp\"\n#include \"parser.hpp\"\n#include \"process_control_block.hpp\"\n\nint main() {\n  Config cfg;\n  std::unordered_set<PCB> processes;\n  console_prompt();\n\n  std::string line;\n  while (std::cout << \"~ \" << std::flush && std::getline(std::cin, line)) {\n    auto tokens = parse_tokens(line);\n    if (tokens.empty()) continue;\n\n    try {\n      Commands cmd = from_str(tokens.front());\n      tokens.erase(tokens.begin());\n      dispatch(cmd, tokens, cfg, processes);\n    } catch (const std::exception& ex) {\n      std::cerr << ex.what() << std::endl;\n    }\n  }\n  return 0;\n}\n
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/src/main.cpp b/src/main.cpp
+--- a/src/main.cpp	(revision f551d7b19b3ff39aca60ffe667dea63e9b4fe7d4)
++++ b/src/main.cpp	(date 1747968040457)
+@@ -22,7 +22,7 @@
+       tokens.erase(tokens.begin());
+       dispatch(cmd, tokens, cfg, processes);
+     } catch (const std::exception& ex) {
+-      std::cerr << ex.what() << std::endl;
++      std::cout << ex.what() << std::endl;
+     }
+   }
+   return 0;
+Index: src/screen.cpp
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.BaseRevisionTextPatchEP
+<+>#include \"screen.hpp\"\n#include <iostream>\n#include <unordered_set>\n#include <vector>\n\nenum class ScreenCommand {\n    Resume,\n    Start,\n    Unknown\n};\n\nstatic constexpr int EXPECTED_ARGS_COUNT = 2;\n\nvoid display_usage() {\n    std::cout << \"Usage:\\n\"\n              << \"  screen -r <name>   Resume and display the named screen session\\n\"\n              << \"  screen -s <name>   Start a new screen session with the given name\\n\";\n}\n\nScreenCommand parse_command(const std::string& cmd) {\n    if (cmd == \"-r\") return ScreenCommand::Resume;\n    if (cmd == \"-s\") return ScreenCommand::Start;\n    return ScreenCommand::Unknown;\n}\n\nbool create_process(const std::string& process_name, std::unordered_set<PCB>& processes) {\n    const auto process = PCB(process_name, 0);\n    try {\n        if (!processes.insert(process).second) {\n            std::cerr << \"Process already exists\" << std::endl;\n            return false;\n        }\n        std::cout << \"Process \" << process.processName << \" created\" << std::endl;\n        return true;\n    } catch (const std::exception& e) {\n        std::cerr << \"Error creating process: \" << e.what() << std::endl;\n        return false;\n    }\n}\n\nbool find_process_status(const std::string& process_name, const std::unordered_set<PCB>& processes) {\n    const PCB search_process(process_name, 0);\n    auto it = processes.find(search_process);\n    \n    if (it != processes.end()) {\n        std::cout << \"Found Process: \" << it->status() << std::endl;\n        return true;\n    }\n    \n    std::cout << \"Couldn't find process named: \" << process_name << std::endl;\n    return false;\n}\n\nvoid screen(std::vector<std::string>& args, std::unordered_set<PCB>& processes) {\n    if (args.size() != EXPECTED_ARGS_COUNT) {\n        display_usage();\n        return;\n    }\n\n    const auto command = parse_command(args[0]);\n    const auto& process_name = args[1];\n\n    switch (command) {\n        case ScreenCommand::Start:\n          create_process(process_name, processes);\n            break;\n        case ScreenCommand::Resume:\n            find_process_status(process_name, processes);\n            break;\n        default:\n            display_usage();\n            break;\n    }\n}\n
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/src/screen.cpp b/src/screen.cpp
+--- a/src/screen.cpp	(revision f551d7b19b3ff39aca60ffe667dea63e9b4fe7d4)
++++ b/src/screen.cpp	(date 1747967968375)
+@@ -27,13 +27,13 @@
+     const auto process = PCB(process_name, 0);
+     try {
+         if (!processes.insert(process).second) {
+-            std::cerr << "Process already exists" << std::endl;
++            std::cout << "Process already exists" << std::endl;
+             return false;
+         }
+         std::cout << "Process " << process.processName << " created" << std::endl;
+         return true;
+     } catch (const std::exception& e) {
+-        std::cerr << "Error creating process: " << e.what() << std::endl;
++        std::cout << "Error creating process: " << e.what() << std::endl;
+         return false;
+     }
+ }
+Index: .gitignore
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.BaseRevisionTextPatchEP
+<+># Prerequisites\n*.d\n\n# Compiled Object files\n*.slo\n*.lo\n*.o\n*.obj\n\n# Precompiled Headers\n*.gch\n*.pch\n\n# Compiled Dynamic libraries\n*.so\n*.dylib\n*.dll\n\n# Fortran module files\n*.mod\n*.smod\n\n# Compiled Static libraries\n*.lai\n*.la\n*.a\n*.lib\n\n# Executables\n*.exe\n*.out\n*.app\n
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/.gitignore b/.gitignore
+--- a/.gitignore	(revision f551d7b19b3ff39aca60ffe667dea63e9b4fe7d4)
++++ b/.gitignore	(date 1747794994481)
+@@ -30,3 +30,4 @@
+ *.exe
+ *.out
+ *.app
++.aider*
+Index: .idea/workspace.xml
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.BaseRevisionTextPatchEP
+<+><?xml version=\"1.0\" encoding=\"UTF-8\"?>\r\n<project version=\"4\">\r\n  <component name=\"AutoImportSettings\">\r\n    <option name=\"autoReloadType\" value=\"SELECTIVE\" />\r\n  </component>\r\n  <component name=\"BackendCodeEditorMiscSettings\">\r\n    <option name=\"/Default/Environment/Hierarchy/GeneratedFilesCacheKey/Timestamp/@EntryValue\" value=\"7\" type=\"long\" />\r\n    <option name=\"/Default/Housekeeping/FeatureSuggestion/FeatureSuggestionManager/DisabledSuggesters/=SwitchToGoToActionSuggester/@EntryIndexedValue\" value=\"true\" type=\"bool\" />\r\n    <option name=\"/Default/Housekeeping/GlobalSettingsUpgraded/IsUpgraded/@EntryValue\" value=\"true\" type=\"bool\" />\r\n    <option name=\"/Default/Housekeeping/LiveTemplatesHousekeeping/HotspotSessionHintIsShown/@EntryValue\" value=\"true\" type=\"bool\" />\r\n    <option name=\"/Default/Housekeeping/OptionsDialog/SelectedPageId/@EntryValue\" value=\"CppFormatterOtherPage\" type=\"string\" />\r\n    <option name=\"/Default/RiderDebugger/RiderRestoreDecompile/RestoreDecompileSetting/@EntryValue\" value=\"false\" type=\"bool\" />\r\n  </component>\r\n  <component name=\"CMakePresetLoader\">{\n  &quot;useNewFormat&quot;: true\n}</component>\r\n  <component name=\"CMakeProjectFlavorService\">\r\n    <option name=\"flavorId\" value=\"CMakePlainProjectFlavor\" />\r\n  </component>\r\n  <component name=\"CMakeReloadState\">\r\n    <option name=\"reloaded\" value=\"true\" />\r\n  </component>\r\n  <component name=\"CMakeRunConfigurationManager\">\r\n    <generated>\r\n      <config projectName=\"ProcessSim\" targetName=\"sim\" />\r\n    </generated>\r\n  </component>\r\n  <component name=\"CMakeSettings\" AUTO_RELOAD=\"true\">\r\n    <configurations>\r\n      <configuration PROFILE_NAME=\"Debug\" ENABLED=\"true\" CONFIG_NAME=\"Debug\" />\r\n    </configurations>\r\n  </component>\r\n  <component name=\"ChangeListManager\">\r\n    <list default=\"true\" id=\"5ef9b151-83aa-45ce-99e1-040a9d6bc75d\" name=\"Changes\" comment=\"\">\r\n      <change afterPath=\"$PROJECT_DIR$/.idea/.name\" afterDir=\"false\" />\r\n      <change afterPath=\"$PROJECT_DIR$/.idea/codeStyles/codeStyleConfig.xml\" afterDir=\"false\" />\r\n      <change afterPath=\"$PROJECT_DIR$/src/process_control_block.cpp\" afterDir=\"false\" />\r\n      <change beforePath=\"$PROJECT_DIR$/.idea/editor.xml\" beforeDir=\"false\" afterPath=\"$PROJECT_DIR$/.idea/editor.xml\" afterDir=\"false\" />\r\n      <change beforePath=\"$PROJECT_DIR$/.idea/opesy-week-2.iml\" beforeDir=\"false\" afterPath=\"$PROJECT_DIR$/.idea/opesy-week-2.iml\" afterDir=\"false\" />\r\n      <change beforePath=\"$PROJECT_DIR$/.idea/other.xml\" beforeDir=\"false\" />\r\n      <change beforePath=\"$PROJECT_DIR$/.idea/workspace.xml\" beforeDir=\"false\" afterPath=\"$PROJECT_DIR$/.idea/workspace.xml\" afterDir=\"false\" />\r\n      <change beforePath=\"$PROJECT_DIR$/CMakeLists.txt\" beforeDir=\"false\" afterPath=\"$PROJECT_DIR$/CMakeLists.txt\" afterDir=\"false\" />\r\n      <change beforePath=\"$PROJECT_DIR$/include/commands.hpp\" beforeDir=\"false\" afterPath=\"$PROJECT_DIR$/include/commands.hpp\" afterDir=\"false\" />\r\n      <change beforePath=\"$PROJECT_DIR$/include/config.hpp\" beforeDir=\"false\" afterPath=\"$PROJECT_DIR$/include/config.hpp\" afterDir=\"false\" />\r\n      <change beforePath=\"$PROJECT_DIR$/include/dispatcher.hpp\" beforeDir=\"false\" afterPath=\"$PROJECT_DIR$/include/dispatcher.hpp\" afterDir=\"false\" />\r\n      <change beforePath=\"$PROJECT_DIR$/include/process_control_block.hpp\" beforeDir=\"false\" afterPath=\"$PROJECT_DIR$/include/process_control_block.hpp\" afterDir=\"false\" />\r\n      <change beforePath=\"$PROJECT_DIR$/include/screen.hpp\" beforeDir=\"false\" afterPath=\"$PROJECT_DIR$/include/screen.hpp\" afterDir=\"false\" />\r\n      <change beforePath=\"$PROJECT_DIR$/src/commands.cpp\" beforeDir=\"false\" afterPath=\"$PROJECT_DIR$/src/commands.cpp\" afterDir=\"false\" />\r\n      <change beforePath=\"$PROJECT_DIR$/src/config.cpp\" beforeDir=\"false\" afterPath=\"$PROJECT_DIR$/src/config.cpp\" afterDir=\"false\" />\r\n      <change beforePath=\"$PROJECT_DIR$/src/dispatcher.cpp\" beforeDir=\"false\" afterPath=\"$PROJECT_DIR$/src/dispatcher.cpp\" afterDir=\"false\" />\r\n      <change beforePath=\"$PROJECT_DIR$/src/main.cpp\" beforeDir=\"false\" afterPath=\"$PROJECT_DIR$/src/main.cpp\" afterDir=\"false\" />\r\n      <change beforePath=\"$PROJECT_DIR$/src/parser.cpp\" beforeDir=\"false\" afterPath=\"$PROJECT_DIR$/src/parser.cpp\" afterDir=\"false\" />\r\n      <change beforePath=\"$PROJECT_DIR$/src/screen.cpp\" beforeDir=\"false\" afterPath=\"$PROJECT_DIR$/src/screen.cpp\" afterDir=\"false\" />\r\n    </list>\r\n    <option name=\"SHOW_DIALOG\" value=\"false\" />\r\n    <option name=\"HIGHLIGHT_CONFLICTS\" value=\"true\" />\r\n    <option name=\"HIGHLIGHT_NON_ACTIVE_CHANGELIST\" value=\"false\" />\r\n    <option name=\"LAST_RESOLUTION\" value=\"IGNORE\" />\r\n  </component>\r\n  <component name=\"ExecutionTargetManager\" SELECTED_TARGET=\"CMakeBuildProfile:Debug\" />\r\n  <component name=\"Git.Settings\">\r\n    <option name=\"RECENT_GIT_ROOT_PATH\" value=\"$PROJECT_DIR$\" />\r\n  </component>\r\n  <component name=\"GitHubPullRequestSearchHistory\">{\n  &quot;lastFilter&quot;: {\n    &quot;state&quot;: &quot;OPEN&quot;,\n    &quot;assignee&quot;: &quot;JG8203&quot;\n  }\n}</component>\r\n  <component name=\"GithubPullRequestsUISettings\">{\n  &quot;selectedUrlAndAccountId&quot;: {\n    &quot;url&quot;: &quot;https://github.com/CSOPESY-PEGB/Week2-OSEmulator&quot;,\n    &quot;accountId&quot;: &quot;1f7de10e-9058-46b3-a90a-0e7adee4a12a&quot;\n  }\n}</component>\r\n  <component name=\"HighlightingSettingsPerFile\">\r\n    <setting file=\"mock:///AIAssistantSnippet..\" root0=\"SKIP_HIGHLIGHTING\" />\r\n    <setting file=\"mock:///AIAssistantSnippet..\" root0=\"SKIP_HIGHLIGHTING\" />\r\n    <setting file=\"file://$PROJECT_DIR$/include/commands.hpp\" root0=\"FORCE_HIGHLIGHTING\" />\r\n    <setting file=\"file://$PROJECT_DIR$/include/config.hpp\" root0=\"FORCE_HIGHLIGHTING\" />\r\n    <setting file=\"file://$PROJECT_DIR$/include/console.hpp\" root0=\"FORCE_HIGHLIGHTING\" />\r\n    <setting file=\"file://$PROJECT_DIR$/include/dispatcher.hpp\" root0=\"FORCE_HIGHLIGHTING\" />\r\n    <setting file=\"file://$PROJECT_DIR$/include/parser.hpp\" root0=\"FORCE_HIGHLIGHTING\" />\r\n    <setting file=\"file://$PROJECT_DIR$/include/screen.hpp\" root0=\"FORCE_HIGHLIGHTING\" />\r\n    <setting file=\"file://$PROJECT_DIR$/src/commands.cpp\" root0=\"FORCE_HIGHLIGHTING\" />\r\n    <setting file=\"file://$PROJECT_DIR$/src/config.cpp\" root0=\"FORCE_HIGHLIGHTING\" />\r\n    <setting file=\"file://$PROJECT_DIR$/src/dispatcher.cpp\" root0=\"FORCE_HIGHLIGHTING\" />\r\n    <setting file=\"file://$PROJECT_DIR$/src/main.cpp\" root0=\"FORCE_HIGHLIGHTING\" />\r\n    <setting file=\"file://$PROJECT_DIR$/src/screen.cpp\" root0=\"FORCE_HIGHLIGHTING\" />\r\n  </component>\r\n  <component name=\"ProblemsViewState\">\r\n    <option name=\"selectedTabId\" value=\"ProjectErrors\" />\r\n  </component>\r\n  <component name=\"ProjectApplicationVersion\">\r\n    <option name=\"ide\" value=\"CLion\" />\r\n    <option name=\"majorVersion\" value=\"2025\" />\r\n    <option name=\"minorVersion\" value=\"1.1\" />\r\n    <option name=\"productBranch\" value=\"Classic\" />\r\n  </component>\r\n  <component name=\"ProjectColorInfo\">{\n  &quot;customColor&quot;: &quot;&quot;,\n  &quot;associatedIndex&quot;: 1\n}</component>\r\n  <component name=\"ProjectId\" id=\"2xEW9k5dy3TkiAF2zvfG5PCRaiD\" />\r\n  <component name=\"ProjectViewState\">\r\n    <option name=\"hideEmptyMiddlePackages\" value=\"true\" />\r\n    <option name=\"showLibraryContents\" value=\"true\" />\r\n  </component>\r\n  <component name=\"PropertiesComponent\"><![CDATA[{\n  \"keyToString\": {\n    \"CMake Application.sim.executor\": \"Run\",\n    \"ModuleVcsDetector.initialDetectionPerformed\": \"true\",\n    \"RunOnceActivity.RadMigrateCodeStyle\": \"true\",\n    \"RunOnceActivity.ShowReadmeOnStart\": \"true\",\n    \"RunOnceActivity.cidr.known.project.marker\": \"true\",\n    \"RunOnceActivity.git.unshallow\": \"true\",\n    \"RunOnceActivity.readMode.enableVisualFormatting\": \"true\",\n    \"RunOnceActivity.west.config.association.type.startup.service\": \"true\",\n    \"SHARE_PROJECT_CONFIGURATION_FILES\": \"true\",\n    \"cf.advertisement.text.has.clang-format\": \"true\",\n    \"cf.advertisement.text.overridden\": \"true\",\n    \"cf.first.check.clang-format\": \"false\",\n    \"cidr.known.project.marker\": \"true\",\n    \"git-widget-placeholder\": \"dev\",\n    \"node.js.detected.package.eslint\": \"true\",\n    \"node.js.detected.package.tslint\": \"true\",\n    \"node.js.selected.package.eslint\": \"(autodetect)\",\n    \"node.js.selected.package.tslint\": \"(autodetect)\",\n    \"nodejs_package_manager_path\": \"npm\",\n    \"settings.editor.selected.configurable\": \"preferences.sourceCode.C/C++\",\n    \"vue.rearranger.settings.migration\": \"true\"\n  }\n}]]></component>\r\n  <component name=\"RunManager\">\r\n    <configuration default=\"true\" type=\"CMakeRunConfiguration\" factoryName=\"Application\" REDIRECT_INPUT=\"false\" ELEVATE=\"false\" USE_EXTERNAL_CONSOLE=\"false\" EMULATE_TERMINAL=\"false\" PASS_PARENT_ENVS_2=\"true\">\r\n      <method v=\"2\">\r\n        <option name=\"com.jetbrains.cidr.execution.CidrBuildBeforeRunTaskProvider$BuildBeforeRunTask\" enabled=\"true\" />\r\n      </method>\r\n    </configuration>\r\n    <configuration name=\"sim\" type=\"CMakeRunConfiguration\" factoryName=\"Application\" REDIRECT_INPUT=\"false\" ELEVATE=\"false\" USE_EXTERNAL_CONSOLE=\"false\" EMULATE_TERMINAL=\"false\" PASS_PARENT_ENVS_2=\"true\" PROJECT_NAME=\"ProcessSim\" TARGET_NAME=\"sim\" CONFIG_NAME=\"Debug\" RUN_TARGET_PROJECT_NAME=\"ProcessSim\" RUN_TARGET_NAME=\"sim\">\r\n      <method v=\"2\">\r\n        <option name=\"com.jetbrains.cidr.execution.CidrBuildBeforeRunTaskProvider$BuildBeforeRunTask\" enabled=\"true\" />\r\n      </method>\r\n    </configuration>\r\n  </component>\r\n  <component name=\"TaskManager\">\r\n    <task active=\"true\" id=\"Default\" summary=\"Default task\">\r\n      <changelist id=\"5ef9b151-83aa-45ce-99e1-040a9d6bc75d\" name=\"Changes\" comment=\"\" />\r\n      <created>1747503565657</created>\r\n      <option name=\"number\" value=\"Default\" />\r\n      <option name=\"presentableId\" value=\"Default\" />\r\n      <updated>1747503565657</updated>\r\n      <workItem from=\"1747503567335\" duration=\"1527000\" />\r\n      <workItem from=\"1747505159035\" duration=\"896000\" />\r\n      <workItem from=\"1747506080911\" duration=\"1144000\" />\r\n      <workItem from=\"1747531161144\" duration=\"225000\" />\r\n      <workItem from=\"1747536082601\" duration=\"31000\" />\r\n      <workItem from=\"1747536123026\" duration=\"4492000\" />\r\n    </task>\r\n    <servers />\r\n  </component>\r\n  <component name=\"TypeScriptGeneratedFilesManager\">\r\n    <option name=\"version\" value=\"3\" />\r\n  </component>\r\n  <component name=\"VCPKGProject\">\r\n    <isAutomaticCheckingOnLaunch value=\"false\" />\r\n    <isAutomaticFoundErrors value=\"true\" />\r\n    <isAutomaticReloadCMake value=\"true\" />\r\n  </component>\r\n</project>
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/.idea/workspace.xml b/.idea/workspace.xml
+--- a/.idea/workspace.xml	(revision f551d7b19b3ff39aca60ffe667dea63e9b4fe7d4)
++++ b/.idea/workspace.xml	(date 1747968040489)
+@@ -4,7 +4,7 @@
+     <option name="autoReloadType" value="SELECTIVE" />
+   </component>
+   <component name="BackendCodeEditorMiscSettings">
+-    <option name="/Default/Environment/Hierarchy/GeneratedFilesCacheKey/Timestamp/@EntryValue" value="7" type="long" />
++    <option name="/Default/Environment/Hierarchy/GeneratedFilesCacheKey/Timestamp/@EntryValue" value="3" type="long" />
+     <option name="/Default/Housekeeping/FeatureSuggestion/FeatureSuggestionManager/DisabledSuggesters/=SwitchToGoToActionSuggester/@EntryIndexedValue" value="true" type="bool" />
+     <option name="/Default/Housekeeping/GlobalSettingsUpgraded/IsUpgraded/@EntryValue" value="true" type="bool" />
+     <option name="/Default/Housekeeping/LiveTemplatesHousekeeping/HotspotSessionHintIsShown/@EntryValue" value="true" type="bool" />
+@@ -31,25 +31,11 @@
+     </configurations>
+   </component>
+   <component name="ChangeListManager">
+-    <list default="true" id="5ef9b151-83aa-45ce-99e1-040a9d6bc75d" name="Changes" comment="">
+-      <change afterPath="$PROJECT_DIR$/.idea/.name" afterDir="false" />
+-      <change afterPath="$PROJECT_DIR$/.idea/codeStyles/codeStyleConfig.xml" afterDir="false" />
+-      <change afterPath="$PROJECT_DIR$/src/process_control_block.cpp" afterDir="false" />
+-      <change beforePath="$PROJECT_DIR$/.idea/editor.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/editor.xml" afterDir="false" />
+-      <change beforePath="$PROJECT_DIR$/.idea/opesy-week-2.iml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/opesy-week-2.iml" afterDir="false" />
+-      <change beforePath="$PROJECT_DIR$/.idea/other.xml" beforeDir="false" />
++    <list default="true" id="5ef9b151-83aa-45ce-99e1-040a9d6bc75d" name="Changes" comment="Refactor code and add process control block support.&#10;&#10;Reorganized code structure for improved readability, added support for managing process control blocks (PCB), and integrated the screen functionality with PCB. Introduced `.clang-format` for consistent code styling and updated project configurations to support these enhancements.">
++      <change beforePath="$PROJECT_DIR$/.gitignore" beforeDir="false" afterPath="$PROJECT_DIR$/.gitignore" afterDir="false" />
+       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+-      <change beforePath="$PROJECT_DIR$/CMakeLists.txt" beforeDir="false" afterPath="$PROJECT_DIR$/CMakeLists.txt" afterDir="false" />
+-      <change beforePath="$PROJECT_DIR$/include/commands.hpp" beforeDir="false" afterPath="$PROJECT_DIR$/include/commands.hpp" afterDir="false" />
+-      <change beforePath="$PROJECT_DIR$/include/config.hpp" beforeDir="false" afterPath="$PROJECT_DIR$/include/config.hpp" afterDir="false" />
+-      <change beforePath="$PROJECT_DIR$/include/dispatcher.hpp" beforeDir="false" afterPath="$PROJECT_DIR$/include/dispatcher.hpp" afterDir="false" />
+-      <change beforePath="$PROJECT_DIR$/include/process_control_block.hpp" beforeDir="false" afterPath="$PROJECT_DIR$/include/process_control_block.hpp" afterDir="false" />
+-      <change beforePath="$PROJECT_DIR$/include/screen.hpp" beforeDir="false" afterPath="$PROJECT_DIR$/include/screen.hpp" afterDir="false" />
+-      <change beforePath="$PROJECT_DIR$/src/commands.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/commands.cpp" afterDir="false" />
+-      <change beforePath="$PROJECT_DIR$/src/config.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/config.cpp" afterDir="false" />
+       <change beforePath="$PROJECT_DIR$/src/dispatcher.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/dispatcher.cpp" afterDir="false" />
+       <change beforePath="$PROJECT_DIR$/src/main.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/main.cpp" afterDir="false" />
+-      <change beforePath="$PROJECT_DIR$/src/parser.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/parser.cpp" afterDir="false" />
+       <change beforePath="$PROJECT_DIR$/src/screen.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/screen.cpp" afterDir="false" />
+     </list>
+     <option name="SHOW_DIALOG" value="false" />
+@@ -74,8 +60,7 @@
+   }
+ }</component>
+   <component name="HighlightingSettingsPerFile">
+-    <setting file="mock:///AIAssistantSnippet.." root0="SKIP_HIGHLIGHTING" />
+-    <setting file="mock:///AIAssistantSnippet.." root0="SKIP_HIGHLIGHTING" />
++    <setting file="file:///Library/Developer/CommandLineTools/SDKs/MacOSX14.4.sdk/usr/include/c++/v1/unordered_set" root0="FORCE_HIGHLIGHTING" />
+     <setting file="file://$PROJECT_DIR$/include/commands.hpp" root0="FORCE_HIGHLIGHTING" />
+     <setting file="file://$PROJECT_DIR$/include/config.hpp" root0="FORCE_HIGHLIGHTING" />
+     <setting file="file://$PROJECT_DIR$/include/console.hpp" root0="FORCE_HIGHLIGHTING" />
+@@ -106,37 +91,32 @@
+     <option name="hideEmptyMiddlePackages" value="true" />
+     <option name="showLibraryContents" value="true" />
+   </component>
+-  <component name="PropertiesComponent"><![CDATA[{
+-  "keyToString": {
+-    "CMake Application.sim.executor": "Run",
+-    "ModuleVcsDetector.initialDetectionPerformed": "true",
+-    "RunOnceActivity.RadMigrateCodeStyle": "true",
+-    "RunOnceActivity.ShowReadmeOnStart": "true",
+-    "RunOnceActivity.cidr.known.project.marker": "true",
+-    "RunOnceActivity.git.unshallow": "true",
+-    "RunOnceActivity.readMode.enableVisualFormatting": "true",
+-    "RunOnceActivity.west.config.association.type.startup.service": "true",
+-    "SHARE_PROJECT_CONFIGURATION_FILES": "true",
+-    "cf.advertisement.text.has.clang-format": "true",
+-    "cf.advertisement.text.overridden": "true",
+-    "cf.first.check.clang-format": "false",
+-    "cidr.known.project.marker": "true",
+-    "git-widget-placeholder": "dev",
+-    "node.js.detected.package.eslint": "true",
+-    "node.js.detected.package.tslint": "true",
+-    "node.js.selected.package.eslint": "(autodetect)",
+-    "node.js.selected.package.tslint": "(autodetect)",
+-    "nodejs_package_manager_path": "npm",
+-    "settings.editor.selected.configurable": "preferences.sourceCode.C/C++",
+-    "vue.rearranger.settings.migration": "true"
++  <component name="PropertiesComponent">{
++  &quot;keyToString&quot;: {
++    &quot;CMake Application.sim.executor&quot;: &quot;Run&quot;,
++    &quot;ModuleVcsDetector.initialDetectionPerformed&quot;: &quot;true&quot;,
++    &quot;RunOnceActivity.RadMigrateCodeStyle&quot;: &quot;true&quot;,
++    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
++    &quot;RunOnceActivity.cidr.known.project.marker&quot;: &quot;true&quot;,
++    &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
++    &quot;RunOnceActivity.readMode.enableVisualFormatting&quot;: &quot;true&quot;,
++    &quot;RunOnceActivity.west.config.association.type.startup.service&quot;: &quot;true&quot;,
++    &quot;SHARE_PROJECT_CONFIGURATION_FILES&quot;: &quot;true&quot;,
++    &quot;cf.advertisement.text.has.clang-format&quot;: &quot;true&quot;,
++    &quot;cf.advertisement.text.overridden&quot;: &quot;true&quot;,
++    &quot;cf.first.check.clang-format&quot;: &quot;false&quot;,
++    &quot;cidr.known.project.marker&quot;: &quot;true&quot;,
++    &quot;git-widget-placeholder&quot;: &quot;dev&quot;,
++    &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
++    &quot;node.js.detected.package.tslint&quot;: &quot;true&quot;,
++    &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
++    &quot;node.js.selected.package.tslint&quot;: &quot;(autodetect)&quot;,
++    &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;,
++    &quot;settings.editor.selected.configurable&quot;: &quot;preferences.sourceCode.C/C++&quot;,
++    &quot;vue.rearranger.settings.migration&quot;: &quot;true&quot;
+   }
+-}]]></component>
++}</component>
+   <component name="RunManager">
+-    <configuration default="true" type="CMakeRunConfiguration" factoryName="Application" REDIRECT_INPUT="false" ELEVATE="false" USE_EXTERNAL_CONSOLE="false" EMULATE_TERMINAL="false" PASS_PARENT_ENVS_2="true">
+-      <method v="2">
+-        <option name="com.jetbrains.cidr.execution.CidrBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
+-      </method>
+-    </configuration>
+     <configuration name="sim" type="CMakeRunConfiguration" factoryName="Application" REDIRECT_INPUT="false" ELEVATE="false" USE_EXTERNAL_CONSOLE="false" EMULATE_TERMINAL="false" PASS_PARENT_ENVS_2="true" PROJECT_NAME="ProcessSim" TARGET_NAME="sim" CONFIG_NAME="Debug" RUN_TARGET_PROJECT_NAME="ProcessSim" RUN_TARGET_NAME="sim">
+       <method v="2">
+         <option name="com.jetbrains.cidr.execution.CidrBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
+@@ -155,8 +135,20 @@
+       <workItem from="1747506080911" duration="1144000" />
+       <workItem from="1747531161144" duration="225000" />
+       <workItem from="1747536082601" duration="31000" />
+-      <workItem from="1747536123026" duration="4492000" />
++      <workItem from="1747536123026" duration="6306000" />
++      <workItem from="1747794360364" duration="7141000" />
++      <workItem from="1747821878735" duration="1818000" />
++      <workItem from="1747967578198" duration="461000" />
++    </task>
++    <task id="LOCAL-00001" summary="Refactor code and add process control block support.&#10;&#10;Reorganized code structure for improved readability, added support for managing process control blocks (PCB), and integrated the screen functionality with PCB. Introduced `.clang-format` for consistent code styling and updated project configurations to support these enhancements.">
++      <option name="closed" value="true" />
++      <created>1747542122672</created>
++      <option name="number" value="00001" />
++      <option name="presentableId" value="LOCAL-00001" />
++      <option name="project" value="LOCAL" />
++      <updated>1747542122672</updated>
+     </task>
++    <option name="localTasksCounter" value="2" />
+     <servers />
+   </component>
+   <component name="TypeScriptGeneratedFilesManager">
+@@ -167,4 +159,20 @@
+     <isAutomaticFoundErrors value="true" />
+     <isAutomaticReloadCMake value="true" />
+   </component>
++  <component name="Vcs.Log.Tabs.Properties">
++    <option name="TAB_STATES">
++      <map>
++        <entry key="MAIN">
++          <value>
++            <State />
++          </value>
++        </entry>
++      </map>
++    </option>
++  </component>
++  <component name="VcsManagerConfiguration">
++    <MESSAGE value="finished screen implementation, " />
++    <MESSAGE value="Refactor code and add process control block support.&#10;&#10;Reorganized code structure for improved readability, added support for managing process control blocks (PCB), and integrated the screen functionality with PCB. Introduced `.clang-format` for consistent code styling and updated project configurations to support these enhancements." />
++    <option name="LAST_COMMIT_MESSAGE" value="Refactor code and add process control block support.&#10;&#10;Reorganized code structure for improved readability, added support for managing process control blocks (PCB), and integrated the screen functionality with PCB. Introduced `.clang-format` for consistent code styling and updated project configurations to support these enhancements." />
++  </component>
+ </project>
+\ No newline at end of file

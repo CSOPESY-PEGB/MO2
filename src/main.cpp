@@ -41,7 +41,7 @@ int main() {
 
     std::string line;
     while (std::cout << "~ " << std::flush && std::getline(std::cin, line)) {
-        auto tokens = parse_tokens(line);
+        auto tokens = ParseTokens(line);
         if (tokens.empty()) {
             continue;
         }
