@@ -27,7 +27,7 @@ class Scheduler::CPUWorker {
 
  private:
   void run() {
-    while (system_running_) {
+    while (true) {
       std::shared_ptr<PCB> pcb;
 
       scheduler_.ready_queue_.wait_and_pop(pcb);
