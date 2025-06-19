@@ -1,14 +1,10 @@
-// dispatcher.cpp
 #include "dispatcher.hpp"
-
 #include <iostream>
-
 #include "console.hpp"
 #include "screen.hpp"
-#include "scheduler.hpp" // We need the full definition here to call its methods
+#include "scheduler.hpp" 
 
 namespace osemu {
-
     void dispatch(Commands cmd,
                   std::vector<std::string>& args,
                   Config& cfg,
@@ -23,12 +19,7 @@ namespace osemu {
                 break;
 
             case Commands::Screen:
-                // The call to screen is now simpler, without screenSession
                 screen(args, scheduler);
-                break;
-
-            case Commands::ScreenLs: // NEW: Handle the 'screen -ls' command
-                scheduler.print_status();
                 break;
 
             case Commands::SchedulerTest:
@@ -43,9 +34,9 @@ namespace osemu {
                 break;
 
             case Commands::Exit:
-                // This case should be empty. The main loop handles the exit logic.
+                
                 break;
         }
     }
 
-} // namespace osemu
+} 
