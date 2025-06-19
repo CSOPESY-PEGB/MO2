@@ -134,7 +134,7 @@ void Scheduler::move_to_running(std::shared_ptr<PCB> pcb) {
   running_processes_.push_back(std::move(pcb));
 }
 
-void Scheduler::move_to_finished(std::shared_p<PCB> pcb) {
+void Scheduler::move_to_finished(std::shared_ptr<PCB> pcb) {
   {
     std::lock_guard<std::mutex> lock(running_mutex_);
     std::erase_if(running_processes_, [&](const auto& p) {

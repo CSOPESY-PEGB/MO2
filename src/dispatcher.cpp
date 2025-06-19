@@ -1,5 +1,6 @@
 #include "dispatcher.hpp"
 #include <iostream>
+#include "config.hpp"
 #include "console.hpp"
 #include "screen.hpp"
 #include "scheduler.hpp" 
