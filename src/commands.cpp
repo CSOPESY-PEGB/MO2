@@ -10,7 +10,7 @@ using CommandMap = std::unordered_map<std::string_view, Commands>;
 const CommandMap cmd_map{
     {"initialize", Commands::Initialize},
     {"screen", Commands::Screen},
-    {"scheduler-test", Commands::SchedulerTest},
+    {"scheduler-start", Commands::SchedulerStart},
     {"scheduler-stop", Commands::SchedulerStop},
     {"report-util", Commands::ReportUtil},
     {"clear", Commands::Clear},
