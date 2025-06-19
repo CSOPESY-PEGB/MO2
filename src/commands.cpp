@@ -20,11 +20,11 @@ const CommandMap cmd_map{
 }
 
 Commands from_str(std::string_view cmd) {
-    const auto it = cmd_map.find(cmd);
-    if (it == cmd_map.end()) {
-        throw std::invalid_argument("Unknown command: " + std::string{cmd});
-    }
-    return it->second;
+  const auto it = cmd_map.find(cmd);
+  if (it == cmd_map.end()) {
+    throw std::invalid_argument("Unknown command: " + std::string{cmd});
+  }
+  return it->second;
 }
 
 }
