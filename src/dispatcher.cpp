@@ -12,11 +12,18 @@ namespace osemu {
 
 void dispatch(Commands cmd, std::vector<std::string>& args, Config& cfg,
               Scheduler& scheduler) {
+
+  static bool initialized = false;
+  if(!initialized && cmd != Commands::Initialize){
+    std::cout << "no config loaded, please call `initialize` on a config file." << std::endl;
+    return;
+  }
   switch (cmd) {
     case Commands::Initialize:
       try {
+        initialized = true;
         scheduler.stop();
-        cfg = Config::fromFile(args.empty() ? "../config.txt" : args[0]);
+        cfg = Config::fromFile(args.empty() ? "config.txt" : args[0]);
         scheduler.start(cfg);
         std::cout << "System initialized from '" << (args.empty() ? "config.txt" : args[0]) << "'.\n";
 

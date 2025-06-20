@@ -17,10 +17,9 @@ int main() {
 
   Config cfg;
   Scheduler scheduler;
-
   console_prompt();
 
-  scheduler.start(cfg);
+  //scheduler.start(cfg);
 
   // Auto-loading processes disabled for debugging
   /*
