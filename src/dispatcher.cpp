@@ -51,6 +51,7 @@ void dispatch(Commands cmd, std::vector<std::string>& args, Config& cfg,
         scheduler.stop_batch_generation();
       }
       break;
+      
     case Commands::ReportUtil:
       scheduler.generate_report();
       break;

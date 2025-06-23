@@ -34,17 +34,9 @@ class Scheduler {
   // Report utilities
   void generate_report(const std::string& filename = "csopesy-log.txt") const;
 
-  void start_generator(const Config& config);
-  void stop_generator();
-
-
  private:
   friend class CPUWorker;
   class CPUWorker;
-
-  void generator_loop(Config config);
-  std::thread m_generator_thread;
-  std::atomic<bool> m_generator_running{false};
 
   void move_to_running(std::shared_ptr<PCB> pcb);
   void move_to_finished(std::shared_ptr<PCB> pcb);
