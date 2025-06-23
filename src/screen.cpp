@@ -1,17 +1,17 @@
-// screen.cpp
+
 #include "screen.hpp"
 
-#include <atomic>  // For std::atomic_bool
+#include <atomic>  
 #include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <sstream>
 #include <memory>
 #include <string>
-#include <thread>  // For std::thread and sleep_for
+#include <thread>  
 #include <vector>
 
-#include "console.hpp"  // For the prompt after exiting
+#include "console.hpp"  
 #include "instruction_generator.hpp"
 #include "process_control_block.hpp"
 #include "instruction_parser.hpp"
@@ -20,61 +20,61 @@
 namespace osemu {
 namespace {
 
-// This function will be run in a separate thread to watch the log file
+
 void tail_log_file(const std::string& filename, std::atomic<bool>& should_run) {
   std::ifstream log_file(filename);
   if (!log_file.is_open()) {
-    return;  // File might not exist yet, thread will just exit.
+    return;  
   }
 
-  // Move to the end of the file initially, but we will print everything first.
-  // So we'll read from the start, then seek to the end.
+  
+  
 
   std::string line;
-  // Go to the beginning to read existing content
+  
   log_file.seekg(0, std::ios::beg);
   while (std::getline(log_file, line)) {
     std::cout << line << std::endl;
   }
 
-  // Loop as long as the main thread says we should run
+  
   while (should_run.load()) {
-    // Read any new lines
+    
     while (std::getline(log_file, line)) {
       std::cout << line << std::endl;
     }
 
-    // If we reached the end of the file, we need to clear the EOF flag
-    // so we can detect future writes.
+    
+    
     if (log_file.eof()) {
       log_file.clear();
     }
 
-    // Wait a bit before checking the file again to avoid burning CPU
+    
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
   }
 }
 
-// Helper function to find a process by name
+
 std::shared_ptr<PCB> find_process(const std::string& process_name, Scheduler& scheduler) {
-  // This is a simplified implementation - in a real system we'd need
-  // a better way to access processes from the scheduler
-  // For now, return nullptr to indicate not implemented
+  
+  
+  
   return nullptr;
 }
 
-// A helper function to handle the 'screen -r' logic
+
 void view_process_screen(const std::string& process_name, Scheduler& scheduler) {
-  // Clear the screen and enter process view mode
+  
   std::cout << "\x1b[2J\x1b[H";
   
   std::string input_line;
   while (true) {
     std::cout << "Process name: " << process_name << std::endl;
-    std::cout << "ID: 1" << std::endl;  // Simplified for now
+    std::cout << "ID: 1" << std::endl;  
     std::cout << "Logs:" << std::endl;
     
-    // Try to read from log file if it exists
+    
     std::string filename = process_name + ".txt";
     std::ifstream log_file(filename);
     if (log_file.is_open()) {
@@ -88,7 +88,7 @@ void view_process_screen(const std::string& process_name, Scheduler& scheduler) 
     }
     
     std::cout << std::endl;
-    std::cout << "Current instruction line: N/A" << std::endl;  // Would need PCB access
+    std::cout << "Current instruction line: N/A" << std::endl;  
     std::cout << "Lines of code: N/A" << std::endl;
     std::cout << std::endl;
     
@@ -100,7 +100,7 @@ void view_process_screen(const std::string& process_name, Scheduler& scheduler) 
     if (input_line == "exit") {
       break;
     } else if (input_line == "process-smi") {
-      // Refresh the display - continue the loop
+      
       std::cout << "\x1b[2J\x1b[H";
       continue;
     } else {
@@ -109,16 +109,16 @@ void view_process_screen(const std::string& process_name, Scheduler& scheduler) 
     }
   }
   
-  // Restore the main console
+  
   std::cout << "\x1b[2J\x1b[H";
   console_prompt();
 }
 
-// A helper function to handle the 'screen -r' logic (legacy file viewing)
+
 void view_process_log(const std::string& process_name) {
   std::string filename = process_name + ".txt";
 
-  // Check if the log file exists. It might not if the process hasn't run yet.
+  
   if (!std::filesystem::exists(filename)) {
     std::cout << "Log file for process '" << process_name
               << "' not found. The process may not have started writing yet."
@@ -126,18 +126,18 @@ void view_process_log(const std::string& process_name) {
     return;
   }
 
-  // Clear the main screen
+  
   std::cout << "\x1b[2J\x1b[H";
   std::cout << "--- Viewing log for '" << process_name
             << "'. Type 'exit' to return. ---" << std::endl;
 
-  // Create a flag to communicate with the tailer thread
+  
   std::atomic<bool> tailer_running = true;
 
-  // Start the thread that will watch and print the log file
+  
   std::thread tailer_thread(tail_log_file, filename, std::ref(tailer_running));
 
-  // Meanwhile, the main thread will block here, waiting for user input
+  
   std::string input_line;
   while (std::cout << process_name << "> " << std::flush &&
          std::getline(std::cin, input_line)) {
@@ -146,23 +146,23 @@ void view_process_log(const std::string& process_name) {
     }
   }
 
-  // Signal the tailer thread that it's time to stop
+  
   tailer_running = false;
 
-  // Wait for the tailer thread to finish its last loop and exit cleanly
+  
   if (tailer_thread.joinable()) {
     tailer_thread.join();
   }
 
-  // Restore the main console
+  
   std::cout << "\x1b[2J\x1b[H";
   console_prompt();
 }
 
-// Helper to create a process
+
 void create_process(const std::string& process_name, Scheduler& scheduler) {
   InstructionGenerator generator;
-  // Generate a reasonable number of instructions for manual testing (20-50)
+  
   auto instructions = generator.generateRandomProgram(20, 50, process_name);
   auto pcb = std::make_shared<PCB>(process_name, instructions);
   
@@ -172,7 +172,7 @@ void create_process(const std::string& process_name, Scheduler& scheduler) {
   scheduler.submit_process(pcb);
 }
 
-// Helper to create a process from .opesy file
+
 void create_process_from_file(const std::string& filename, const std::string& process_name, Scheduler& scheduler) {
   std::ifstream file(filename);
   if (!file) {
@@ -220,9 +220,9 @@ ScreenCommand parse_command(const std::string& cmd) {
   return ScreenCommand::Unknown;
 }
 
-}  // end anonymous namespace
+}  
 
-// This is the main function called by your dispatcher
+
 void screen(std::vector<std::string>& args, Scheduler& scheduler) {
   if (args.empty()) {
     display_usage();
@@ -268,4 +268,4 @@ void screen(std::vector<std::string>& args, Scheduler& scheduler) {
   }
 }
 
-}  // namespace osemu
+}  
