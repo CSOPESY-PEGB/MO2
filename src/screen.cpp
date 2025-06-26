@@ -97,8 +97,8 @@ void view_process_screen(const std::string& process_name, Scheduler& scheduler) 
       }
 
       std::cout << std::endl;
-      std::cout << "Current instruction line: N/A" << std::endl;
-      std::cout << "Lines of code: N/A" << std::endl;
+      std::cout << "Current instruction line: "<< pcb->currentInstruction << std::endl;
+      std::cout << "Lines of code: " << pcb-> totalInstructions << std::endl;
       std::cout << std::endl;
 
       std::cout << "root:\\> ";
