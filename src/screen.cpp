@@ -57,21 +57,22 @@ void tail_log_file(const std::string& filename, std::atomic<bool>& should_run) {
 
 
 std::shared_ptr<PCB> find_process(const std::string& process_name, Scheduler& scheduler) {
-  
-  
-  
-  return nullptr;
+
+  return scheduler.find_process_by_name(process_name);
+
+  //return nullptr;
 }
 
 
 void view_process_screen(const std::string& process_name, Scheduler& scheduler) {
-  
+  // scheduler gets the process
+  std::shared_ptr<PCB> pcb = find_process(process_name, scheduler);
   std::cout << "\x1b[2J\x1b[H";
-  
+
   std::string input_line;
   while (true) {
     std::cout << "Process name: " << process_name << std::endl;
-    std::cout << "ID: 1" << std::endl;  
+    std::cout << "ID: "  << pcb->processID<< std::endl;
     std::cout << "Logs:" << std::endl;
     
     
@@ -170,6 +171,8 @@ void create_process(const std::string& process_name, Scheduler& scheduler) {
             << instructions.size() << " instructions." << std::endl;
   
   scheduler.submit_process(pcb);
+  std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
 }
 
 

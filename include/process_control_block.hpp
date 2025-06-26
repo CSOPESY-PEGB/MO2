@@ -7,6 +7,7 @@
 #include <string>
 #include <vector>
 #include "instruction_parser.hpp"
+#include <atomic>
 
 namespace osemu {
 
@@ -14,6 +15,7 @@ class PCB : public std::enable_shared_from_this<PCB> {
  public:
   PCB(std::string procName, size_t totalLines);
   PCB(std::string procName, const std::vector<Expr>& instructions);
+  static std::atomic<uint32_t> next_pid;
 
   void step();
   bool isComplete() const;
@@ -28,6 +30,7 @@ class PCB : public std::enable_shared_from_this<PCB> {
   bool isSleeping() const;
   void decrementSleepCycles();
 
+  uint32_t processID;
   std::string processName;
   size_t currentInstruction;
   size_t totalInstructions;

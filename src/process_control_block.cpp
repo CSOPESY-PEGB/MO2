@@ -4,9 +4,11 @@
 #include <sstream>
 
 namespace osemu {
+std::atomic<uint32_t> PCB::next_pid{1}; // initialize the static ctr. happens only once when program starts
 
 PCB::PCB(std::string procName, size_t totalLines)
-    : processName(std::move(procName)),
+    : processID(next_pid++),
+      processName(std::move(procName)),
       currentInstruction(0),
       totalInstructions(totalLines),
       creationTime(std::chrono::system_clock::now()),
@@ -16,7 +18,8 @@ PCB::PCB(std::string procName, size_t totalLines)
 }
 
 PCB::PCB(std::string procName, const std::vector<Expr>& instrs)
-    : processName(std::move(procName)),
+    : processID(next_pid++),
+      processName(std::move(procName)),
       currentInstruction(0),
       totalInstructions(instrs.size()),
       creationTime(std::chrono::system_clock::now()),

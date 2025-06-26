@@ -140,6 +140,31 @@ void Scheduler::print_status() const {
       << "----------------------------------------------------------------\n";
 }
 
+
+std::shared_ptr<PCB> Scheduler::find_process_by_name(const std::string& processName) const{
+
+    // find process in running processes
+    {
+        std::lock_guard<std::mutex> lock(running_mutex_);
+        for (const auto& pcb : running_processes_) {
+            if (pcb->processName == processName) {
+                return pcb;
+            }
+        }
+    }
+
+    // if not in running processes, find process in finished processes
+    {
+        std::lock_guard<std::mutex> lock(finished_mutex_);
+        for (const auto& pcb : finished_processes_) {
+            if (pcb->processName == processName) {
+                return pcb;
+            }
+        }
+    }
+
+    return nullptr;
+}
 void Scheduler::move_to_running(std::shared_ptr<PCB> pcb) {
   std::lock_guard<std::mutex> lock(running_mutex_);
   running_processes_.push_back(std::move(pcb));

@@ -25,12 +25,12 @@ class Scheduler {
 
   void submit_process(std::shared_ptr<PCB> pcb);
   void print_status() const;
-  
+
   // Process generation
   void start_batch_generation(const Config& config);
   void stop_batch_generation();
   bool is_generating() const { return batch_generating_; }
-  
+  std::shared_ptr<PCB> find_process_by_name(const std::string& name) const;
   // Report utilities
   void generate_report(const std::string& filename = "csopesy-log.txt") const;
 
@@ -51,7 +51,7 @@ class Scheduler {
 
   std::vector<std::shared_ptr<PCB>> running_processes_;
   std::vector<std::shared_ptr<PCB>> finished_processes_;
-  
+
   // Batch process generation
   std::atomic<bool> batch_generating_;
   std::unique_ptr<std::thread> batch_generator_thread_;
