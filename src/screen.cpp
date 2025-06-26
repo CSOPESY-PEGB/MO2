@@ -238,6 +238,7 @@ void screen(std::vector<std::string>& args, Scheduler& scheduler) {
         return;
       }
       create_process(args[1], scheduler);
+      view_process_screen(args[1],scheduler);
       break;
 
     case ScreenCommand::Resume:
