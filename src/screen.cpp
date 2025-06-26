@@ -58,61 +58,75 @@ void tail_log_file(const std::string& filename, std::atomic<bool>& should_run) {
 
 std::shared_ptr<PCB> find_process(const std::string& process_name, Scheduler& scheduler) {
 
-  return scheduler.find_process_by_name(process_name);
+  if (scheduler.find_process_by_name(process_name) != nullptr) {
+    return scheduler.find_process_by_name(process_name);
+  }
 
-  //return nullptr;
+  return nullptr;
 }
 
 
 void view_process_screen(const std::string& process_name, Scheduler& scheduler) {
   // scheduler gets the process
-  std::shared_ptr<PCB> pcb = find_process(process_name, scheduler);
-  std::cout << "\x1b[2J\x1b[H";
+  try {
+    std::shared_ptr<PCB> pcb = find_process(process_name, scheduler);
 
-  std::string input_line;
-  while (true) {
-    std::cout << "Process name: " << process_name << std::endl;
-    std::cout << "ID: "  << pcb->processID<< std::endl;
-    std::cout << "Logs:" << std::endl;
-    
-    
-    std::string filename = process_name + ".txt";
-    std::ifstream log_file(filename);
-    if (log_file.is_open()) {
-      std::string line;
-      while (std::getline(log_file, line)) {
-        std::cout << line << std::endl;
+    if (!pcb) {
+      throw std::runtime_error("Process " + process_name + " not found.");
+    }
+    std::cout << "\x1b[2J\x1b[H";
+
+
+    std::string input_line;
+    while (true) {
+      std::cout << "Process name: " << process_name << std::endl;
+      std::cout << "ID: "  << pcb->processID<< std::endl;
+      std::cout << "Logs:" << std::endl;
+
+
+      std::string filename = process_name + ".txt";
+      std::ifstream log_file(filename);
+      if (log_file.is_open()) {
+        std::string line;
+        while (std::getline(log_file, line)) {
+          std::cout << line << std::endl;
+        }
+        log_file.close();
+      } else {
+        std::cout << "(No logs yet)" << std::endl;
       }
-      log_file.close();
-    } else {
-      std::cout << "(No logs yet)" << std::endl;
+
+      std::cout << std::endl;
+      std::cout << "Current instruction line: N/A" << std::endl;
+      std::cout << "Lines of code: N/A" << std::endl;
+      std::cout << std::endl;
+
+      std::cout << "root:\\> ";
+      if (!std::getline(std::cin, input_line)) {
+        break;
+      }
+
+      if (input_line == "exit") {
+        break;
+      } else if (input_line == "process-smi") {
+
+        std::cout << "\x1b[2J\x1b[H";
+        continue;
+      } else {
+        std::cout << "Unknown command: " << input_line << std::endl;
+        std::cout << "Available commands: process-smi, exit" << std::endl;
+      }
     }
-    
-    std::cout << std::endl;
-    std::cout << "Current instruction line: N/A" << std::endl;  
-    std::cout << "Lines of code: N/A" << std::endl;
-    std::cout << std::endl;
-    
-    std::cout << "root:\\> ";
-    if (!std::getline(std::cin, input_line)) {
-      break;
-    }
-    
-    if (input_line == "exit") {
-      break;
-    } else if (input_line == "process-smi") {
-      
-      std::cout << "\x1b[2J\x1b[H";
-      continue;
-    } else {
-      std::cout << "Unknown command: " << input_line << std::endl;
-      std::cout << "Available commands: process-smi, exit" << std::endl;
-    }
+
+
+    std::cout << "\x1b[2J\x1b[H";
+    console_prompt();
   }
-  
-  
-  std::cout << "\x1b[2J\x1b[H";
-  console_prompt();
+  catch (const std::exception& e) {
+    std::cout << e.what() << std::endl;
+
+  }
+
 }
 
 
