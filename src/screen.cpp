@@ -56,8 +56,8 @@ void tail_log_file(const std::string& filename, std::atomic<bool>& should_run) {
 }
 
 
-std::shared_ptr<PCB> find_process(const std::string& process_name, Scheduler& scheduler) {
-
+std::shared_ptr<PCB> find_process(const std::string& process_name,
+                                  Scheduler& scheduler) {
   if (scheduler.find_process_by_name(process_name) != nullptr) {
     return scheduler.find_process_by_name(process_name);
   }
@@ -65,7 +65,19 @@ std::shared_ptr<PCB> find_process(const std::string& process_name, Scheduler& sc
   return nullptr;
 }
 
-
+void display_process_logs(const std::string& process_name) {
+  std::string filename = process_name + ".txt";
+  std::ifstream log_file(filename);
+  if (log_file.is_open()) {
+    std::string line;
+    while (std::getline(log_file, line)) {
+      std::cout << line << std::endl;
+    }
+    log_file.close();
+  } else {
+    std::cout << "(No logs yet)" << std::endl;
+  }
+}
 void view_process_screen(const std::string& process_name, Scheduler& scheduler) {
   // scheduler gets the process
   try {
@@ -83,18 +95,7 @@ void view_process_screen(const std::string& process_name, Scheduler& scheduler) 
       std::cout << "ID: "  << pcb->processID<< std::endl;
       std::cout << "Logs:" << std::endl;
 
-
-      std::string filename = process_name + ".txt";
-      std::ifstream log_file(filename);
-      if (log_file.is_open()) {
-        std::string line;
-        while (std::getline(log_file, line)) {
-          std::cout << line << std::endl;
-        }
-        log_file.close();
-      } else {
-        std::cout << "(No logs yet)" << std::endl;
-      }
+      display_process_logs(process_name);
 
       std::cout << std::endl;
       std::cout << "Current instruction line: "<< pcb->currentInstruction << std::endl;
