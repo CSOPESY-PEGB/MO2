@@ -54,7 +54,7 @@ std::string PCB::status() const {
   auto creation_time_str = std::format("{:%m/%d/%Y %I:%M:%S%p}", creationTime);
 
   std::ostringstream oss;
-  oss << "PID:" processID << " " << processName << " (" << creation_time_str << ")  ";
+  oss << "PID:" << processID << " " << processName << " (" << creation_time_str << ")  ";
 
   // Logic to display different status based on the process state
   if (isComplete()) {

@@ -33,7 +33,7 @@ void dispatch(Commands cmd, std::vector<std::string>& args, Config& cfg,
       break;
 
     case Commands::Screen:
-      screen(args, scheduler);
+      screen(args, scheduler, cfg);
       break;
 
     case Commands::SchedulerStart:

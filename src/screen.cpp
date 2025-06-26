@@ -161,10 +161,10 @@ void view_process_log(const std::string& process_name) {
 }
 
 
-void create_process(const std::string& process_name, Scheduler& scheduler) {
+void create_process(const std::string& process_name, Scheduler& scheduler, Config& config) {
   InstructionGenerator generator;
-  
-  auto instructions = generator.generateRandomProgram(20, 50, process_name);
+
+  auto instructions = generator.generateRandomProgram(config.minInstructions, config.maxInstructions, process_name);
   auto pcb = std::make_shared<PCB>(process_name, instructions);
   
   std::cout << "Created process '" << process_name << "' with " 
@@ -226,7 +226,7 @@ ScreenCommand parse_command(const std::string& cmd) {
 }  
 
 
-void screen(std::vector<std::string>& args, Scheduler& scheduler) {
+void screen(std::vector<std::string>& args, Scheduler& scheduler, Config& config) {
   if (args.empty()) {
     display_usage();
     return;
@@ -240,7 +240,7 @@ void screen(std::vector<std::string>& args, Scheduler& scheduler) {
         display_usage();
         return;
       }
-      create_process(args[1], scheduler);
+      create_process(args[1], scheduler, config);
       view_process_screen(args[1],scheduler);
       break;
 
