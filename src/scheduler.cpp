@@ -193,8 +193,6 @@ void Scheduler::stop() {
 }
 
 void Scheduler::submit_process(std::shared_ptr<PCB> pcb) {
-  std::cout << "Process " << pcb->processName << " submitted to scheduler."
-            << std::endl;
   ready_queue_.push(std::move(pcb));
 }
 
@@ -305,9 +303,6 @@ void Scheduler::start_batch_generation(const Config& config) {
         
         auto pcb = std::make_shared<PCB>(process_name, instructions);
         submit_process(pcb);
-        
-        std::cout << "Generated process: " << process_name << " with " 
-                  << instructions.size() << " instructions." << std::endl;
       }
       
       // CPU cycle timing (simplified)
