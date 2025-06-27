@@ -31,6 +31,8 @@ class Scheduler {
   // Process generation
   void start_batch_generation(const Config& config);
   void stop_batch_generation();
+  void calculate_cpu_utilization(size_t& total_cores, size_t& cores_used,
+                                 double& cpu_utilization) const;
   bool is_generating() const { return batch_generating_; }
   std::shared_ptr<PCB> find_process_by_name(const std::string& name) const;
   // Report utilities

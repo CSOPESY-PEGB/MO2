@@ -197,6 +197,15 @@ void Scheduler::submit_process(std::shared_ptr<PCB> pcb) {
 }
 
 void Scheduler::print_status() const {
+  size_t total_cores;
+  size_t cores_used;
+  double cpu_utilization;
+  calculate_cpu_utilization(total_cores, cores_used, cpu_utilization);
+
+  std::cout << "CPU utilization: " << static_cast<int>(cpu_utilization) << "%\n";
+  std::cout << "Cores used: " << cores_used << "\n";
+  std::cout << "Cores available: " << (total_cores - cores_used) << "\n\n";
+
   std::cout
       << "----------------------------------------------------------------\n";
   std::cout << "Running processes:\n";
@@ -311,15 +320,30 @@ void Scheduler::stop_batch_generation() {
   if (!batch_generating_.exchange(false)) {
     return;
   }
-  
+
   if (batch_generator_thread_ && batch_generator_thread_->joinable()) {
     batch_generator_thread_->join();
   }
   batch_generator_thread_.reset();
-  
+
   std::cout << "Stopped batch process generation." << std::endl;
 }
 
+void Scheduler::calculate_cpu_utilization(size_t& total_cores,
+                                          size_t& cores_used,
+                                          double& cpu_utilization) const {
+  total_cores = cpu_workers_.size();
+  cores_used = 0;
+
+  {
+    std::lock_guard<std::mutex> lock(running_mutex_);
+    cores_used = running_processes_.size();
+  }
+
+  cpu_utilization =
+      total_cores > 0 ? (static_cast<double>(cores_used) / total_cores) * 100.0
+                      : 0.0;
+}
 void Scheduler::generate_report(const std::string& filename) const {
   std::ofstream report_file(filename);
   
@@ -327,18 +351,12 @@ void Scheduler::generate_report(const std::string& filename) const {
     std::cerr << "Failed to create report file: " << filename << std::endl;
     return;
   }
-  
-  // Calculate CPU utilization
-  size_t total_cores = cpu_workers_.size();
-  size_t cores_used = 0;
-  
-  {
-    std::lock_guard<std::mutex> lock(running_mutex_);
-    cores_used = running_processes_.size();
-  }
-  
-  double cpu_utilization = total_cores > 0 ? (static_cast<double>(cores_used) / total_cores) * 100.0 : 0.0;
-  
+
+  size_t total_cores;
+  size_t cores_used;
+  double cpu_utilization;
+  calculate_cpu_utilization(total_cores, cores_used, cpu_utilization);
+
   report_file << "CPU utilization: " << static_cast<int>(cpu_utilization) << "%\n";
   report_file << "Cores used: " << cores_used << "\n";
   report_file << "Cores available: " << (total_cores - cores_used) << "\n\n";
