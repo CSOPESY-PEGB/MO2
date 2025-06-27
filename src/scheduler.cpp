@@ -67,7 +67,7 @@ class Scheduler::CPUWorker {
   void execute_process(std::shared_ptr<PCB> pcb, int tq) {
     pcb->assignedCore = core_id_;
     scheduler_.move_to_running(pcb);
-    std::ofstream log_file(pcb->processName + ".txt");
+    // std::ofstream log_file(pcb->processName + ".txt");
 
     int steps = 0;
     while(steps < tq || !pcb->isComplete()){
@@ -82,9 +82,9 @@ class Scheduler::CPUWorker {
       
       // Get new logs produced by this step
       const auto& logs_after = pcb->getExecutionLogs();
-      for (size_t i = logs_count_before; i < logs_after.size(); ++i) {
-        log_file << logs_after[i] << " Core:" << core_id_ << std::endl;
-      }
+      // for (size_t i = logs_count_before; i < logs_after.size(); ++i) {
+      //   log_file << logs_after[i] << " Core:" << core_id_ << std::endl;
+      // }
 
 
       std::this_thread::sleep_for(std::chrono::milliseconds(100));
