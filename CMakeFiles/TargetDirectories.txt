@@ -1,0 +1,3 @@
+/mnt/c/Users/Joel Ethan Batac/Documents/Y3T3/csopesy/MO1/Week2-OSEmulator/CMakeFiles/sim.dir
+/mnt/c/Users/Joel Ethan Batac/Documents/Y3T3/csopesy/MO1/Week2-OSEmulator/CMakeFiles/edit_cache.dir
+/mnt/c/Users/Joel Ethan Batac/Documents/Y3T3/csopesy/MO1/Week2-OSEmulator/CMakeFiles/rebuild_cache.dir

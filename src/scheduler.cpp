@@ -10,43 +10,69 @@
 #include <random>
 #include "config.hpp"
 #include "process_control_block.hpp"
+#include <atomic>
 
 namespace osemu {
 
 class Scheduler::CPUWorker {
  public:
-  CPUWorker(int core_id, Scheduler& scheduler, std::atomic<bool>& running)
-      : core_id_(core_id), scheduler_(scheduler), system_running_(running) {}
+  CPUWorker(int core_id, Scheduler& scheduler)
+      : core_id_(core_id), scheduler_(scheduler) {}
 
   void start() { thread_ = std::thread(&CPUWorker::run, this); }
-
-  void join() {
-    if (thread_.joinable()) {
+  void join(){
+    if(thread_.joinable()){
       thread_.join();
     }
   }
+  void stop(){
+    shutdown_requested_ = true;
+    cv_.notify_one();
+  }
+  
+  //pushes a process into the cpu
+  void assign_task(std::shared_ptr<PCB> pcb, int time_quantum){
+    std::lock_guard<std::mutex> lock(mutex_);
+    current_task_ = std::move(pcb);
+    time_quantum_ = time_quantum_;
+    idle_ = false;
+
+    cv_.notify_one(); //wake up worker thread
+  };
+
+  bool is_idle() const { return idle_.load(); };
 
  private:
-  void run() {
-    while (true) {
-      std::shared_ptr<PCB> pcb;
 
-      scheduler_.ready_queue_.wait_and_pop(pcb);
+   void run(){
+    while(!shutdown_requested_.load()){
+      std::unique_lock<std::mutex> lock(mutex_);
 
-      if (!system_running_ || !pcb) {
+      cv_.wait(lock, [this] {
+        return shutdown_requested_.load() || !idle_.load();
+      });
+      
+      if (shutdown_requested_.load()){
         break;
       }
 
-      execute_process(pcb);
+      lock.unlock();
+      execute_process(current_task_, time_quantum_);
+
+      current_task_ = nullptr;
+      idle_ = true;
     }
   }
 
-  void execute_process(std::shared_ptr<PCB> pcb) {
+  void execute_process(std::shared_ptr<PCB> pcb, int tq) {
     pcb->assignedCore = core_id_;
     scheduler_.move_to_running(pcb);
     std::ofstream log_file(pcb->processName + ".txt");
 
-    while (!pcb->isComplete()) {
+    for(size_t i = 0; i < tq; i++){
+      if(shutdown_requested_.load()){
+        break;
+      }
       // Clear previous logs to get only new output from this step
       const auto& logs_before = pcb->getExecutionLogs();
       size_t logs_count_before = logs_before.size();
@@ -62,13 +88,29 @@ class Scheduler::CPUWorker {
       std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
 
-    pcb->finishTime = std::chrono::system_clock::now();
-    scheduler_.move_to_finished(pcb);
+    if(pcb->isComplete()){
+      pcb->finishTime = std::chrono::system_clock::now();
+      scheduler_.move_to_finished(pcb);
+    } else {
+      scheduler_.move_to_ready(pcb);
+    }
+
   }
+
   int core_id_;
   std::thread thread_;
   Scheduler& scheduler_;
-  std::atomic<bool>& system_running_;
+
+  std::atomic<bool> idle_{true};
+  std::atomic<bool> shutdown_requested_{false};
+
+  //current process
+  std::shared_ptr<PCB> current_task_;
+  int time_quantum_;
+
+  //synchronization
+  std::mutex mutex_;
+  std::condition_variable cv_;
 };
 
 Scheduler::Scheduler() : running_(false), batch_generating_(false), process_counter_(0) {}
@@ -82,32 +124,69 @@ Scheduler::~Scheduler() {
   }
 }
 
+
+//dispatches processes from the ready queue to the cpu worker cores.
+void Scheduler::dispatch(){
+  while(running_.load()){
+    std::shared_ptr<PCB> process;
+
+    if(!ready_queue_.wait_and_pop(process)){
+      if(!running_.load()) break;
+      else continue;
+    }
+
+    if(!process){
+      if(!running_.load()) break;
+      else continue;
+    }
+
+    bool dispatched = false;
+    while (!dispatched && running_.load()){
+      for (auto& worker: cpu_workers_){
+        if (worker->is_idle()){
+          //this is FCFS LOGIC
+          worker->assign_task(process, process->totalInstructions);
+          dispatched = true;
+          break;
+        }
+      }
+    }
+    
+  }
+}
+
 void Scheduler::start(const Config& config) {
   running_ = true;
   for (uint32_t i = 0; i < config.cpuCount; ++i) {
-    cpu_workers_.push_back(std::make_unique<CPUWorker>(i, *this, running_));
+    cpu_workers_.push_back(std::make_unique<CPUWorker>(i, *this));
     cpu_workers_.back()->start();
   }
   std::cout << "Scheduler started with " << config.cpuCount << " cores."
             << std::endl;
+
+  dispatch_thread_ = std::thread(&Scheduler::dispatch, this);
+  
 }
 
 void Scheduler::stop() {
-  if (batch_generating_.load()) {
-    stop_batch_generation();
+  ready_queue_.shutdown();
+
+  if(dispatch_thread_.joinable()){
+    dispatch_thread_.join();
   }
 
-  if (!running_.exchange(false)) {
-    return;
+  for (auto& worker : cpu_workers_){
+    worker->stop();
   }
 
-  for (size_t i = 0; i < cpu_workers_.size(); ++i) {
-    ready_queue_.push(nullptr);
+  for (auto& worker : cpu_workers_) {
+      worker->join();
   }
 
   for (auto& worker : cpu_workers_) {
     worker->join();
   }
+
   cpu_workers_.clear();
   std::cout << "Scheduler stopped." << std::endl;
 }
@@ -180,6 +259,12 @@ void Scheduler::move_to_finished(std::shared_ptr<PCB> pcb) {
   {
     std::lock_guard<std::mutex> lock(finished_mutex_);
     finished_processes_.push_back(std::move(pcb));
+  }
+}
+
+void Scheduler::move_to_ready(std::shared_ptr<PCB> pcb){
+  {
+    ready_queue_.push(std::move(pcb));
   }
 }
 

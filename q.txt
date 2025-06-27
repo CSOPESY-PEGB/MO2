@@ -1,0 +1,8 @@
+(06/20/2025 09:33:44.742866456AM) "Hello world from q!" Core:1
+(06/20/2025 09:33:45.908006379AM) "Hello world from loop!" Core:1
+(06/20/2025 09:33:47.915390965AM) "Hello world from q!" Core:1
+(06/20/2025 09:33:47.760079174AM) "Hello world from loop!" Core:1
+(06/20/2025 09:33:49.552175758AM) "Hello world from q!" Core:1
+(06/20/2025 09:33:49.657298465AM) "Hello world from loop!" Core:1
+(06/20/2025 09:33:49.657425209AM) "Hello world from loop!" Core:1
+(06/20/2025 09:33:49.657470513AM) "Hello world from loop!" Core:1

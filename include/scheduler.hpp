@@ -20,6 +20,8 @@ class Scheduler {
   Scheduler();
   ~Scheduler();
 
+  void dispatch();
+
   void start(const Config& config);
   void stop();
 
@@ -40,6 +42,7 @@ class Scheduler {
 
   void move_to_running(std::shared_ptr<PCB> pcb);
   void move_to_finished(std::shared_ptr<PCB> pcb);
+  void move_to_ready(std::shared_ptr<PCB> pcb);
 
   std::atomic<bool> running_;
   std::vector<std::unique_ptr<CPUWorker>> cpu_workers_;
@@ -51,6 +54,8 @@ class Scheduler {
 
   std::vector<std::shared_ptr<PCB>> running_processes_;
   std::vector<std::shared_ptr<PCB>> finished_processes_;
+
+  std::thread dispatch_thread_;
 
   // Batch process generation
   std::atomic<bool> batch_generating_;
