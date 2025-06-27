@@ -1,8 +1,0 @@
-(06/20/2025 09:16:41.677748195AM) "Hello world from 7!" Core:2
-(06/20/2025 09:16:41.782592266AM) "Hello world from 7!" Core:2
-(06/20/2025 09:16:41.992642696AM) "Hello world from loop!" Core:2
-(06/20/2025 09:16:41.992770950AM) "Hello world from loop!" Core:2
-(06/20/2025 09:16:41.992839519AM) "Hello world from loop!" Core:2
-(06/20/2025 09:16:43.660395380AM) "Hello world from 7!" Core:2
-(06/20/2025 09:16:46.269342348AM) "Hello world from 7!" Core:2
-(06/20/2025 09:16:46.894157039AM) "Hello world from 7!" Core:2
