@@ -534,7 +534,6 @@ void InstructionEvaluator::handle_declare(const std::string& var_name, const Ato
 
 std::string InstructionEvaluator::handle_print(const Atom& arg, const std::string& process_name) {
     std::string output = print_atom_to_string(arg);
-    
     // Create log entry with timestamp
     auto now = std::chrono::system_clock::now();
     std::string timestamp = std::format("{:%m/%d/%Y %I:%M:%S%p}", now);

@@ -69,11 +69,24 @@ class Scheduler::CPUWorker {
     scheduler_.move_to_running(pcb);
     // std::ofstream log_file(pcb->processName + ".txt");
 
+    size_t last_tick = scheduler_.ticks_.load(); //load the first tick, this will be important for detecting when to run again.
     int steps = 0;
     while(steps < tq || !pcb->isComplete()){
       if(shutdown_requested_.load()){
         break;
       }
+
+      {
+        //basically wait for the clock to increment.
+        std::unique_lock<std::mutex> lock(scheduler_.clock_mutex_); 
+        scheduler_.clock_cv_.wait(lock, [&](){
+          return scheduler_.get_ticks() - last_tick >=  scheduler_.delay_per_exec_ || shutdown_requested_.load(); 
+        }); //when clock increments, wait until the last tick and get ticks is 0 
+      }
+
+      //once unlocked, just check first for shutdown request
+      if(shutdown_requested_.load()) break;
+
       // Clear previous logs to get only new output from this step
       const auto& logs_before = pcb->getExecutionLogs();
       size_t logs_count_before = logs_before.size();
@@ -81,14 +94,12 @@ class Scheduler::CPUWorker {
       pcb->step();
       
       // Get new logs produced by this step
-      const auto& logs_after = pcb->getExecutionLogs();
-      // for (size_t i = logs_count_before; i < logs_after.size(); ++i) {
+      //const auto& logs_after = pcb->getExecutionLogs();
+      //for (size_t i = logs_count_before; i < logs_after.size(); ++i) {
       //   log_file << logs_after[i] << " Core:" << core_id_ << std::endl;
-      // }
+      //}
 
-
-      std::this_thread::sleep_for(std::chrono::milliseconds(100));
-      steps++;
+      steps++; //TODO: REPLACE THIS TO BE WHEN WE ARE PAST OUR TIME QUANTUM, POLISH LOGIC
     }
 
     if(pcb->isComplete()){
@@ -163,12 +174,12 @@ void Scheduler::global_clock(){
   while(running_.load()){
     
     //sleep the thread to simulate polling..
-    std::this_thread::sleep_for(std::chrono::milliseconds(4));
+    std::this_thread::sleep_for(std::chrono::milliseconds(4)); //this is linux standard according to chatgippity. honestly just an arbitrary number
 
     std::lock_guard<std::mutex> lock(clock_mutex_);
     ticks_++;
 
-    clock_cv_.notify_all();
+    clock_cv_.notify_all();//all other processes wait on this tick
   }
 }
 
@@ -211,6 +222,7 @@ void Scheduler::stop() {
   }
 
   std::cout << "Scheduler stopped." << std::endl;
+  std::cout << "Number of cycles from this run: " << ticks_.load() << std::endl;
 }
 
 void Scheduler::submit_process(std::shared_ptr<PCB> pcb) {
