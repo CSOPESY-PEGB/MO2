@@ -21,6 +21,7 @@ class Scheduler {
   ~Scheduler();
 
   void dispatch();
+  void global_clock();
 
   void start(const Config& config);
   void stop();
@@ -38,10 +39,13 @@ class Scheduler {
   // Report utilities
   void generate_report(const std::string& filename = "csopesy-log.txt") const;
 
+  size_t get_ticks(){ return ticks_.load(); } //getter for ticks
+
  private:
   friend class CPUWorker;
   class CPUWorker;
 
+  
   void move_to_running(std::shared_ptr<PCB> pcb);
   void move_to_finished(std::shared_ptr<PCB> pcb);
   void move_to_ready(std::shared_ptr<PCB> pcb);
@@ -64,6 +68,14 @@ class Scheduler {
   std::unique_ptr<std::thread> batch_generator_thread_;
   InstructionGenerator instruction_generator_;
   int process_counter_;
+
+  //global synchronization
+  std::atomic<size_t> ticks_{0}; //global counter.
+  mutable std::mutex clock_mutex_; //part 1 of notifying all
+  std::condition_variable clock_cv_; //part 2 of notifying all
+  std::thread global_clock_thread_;
+
+
 };
 
 }  // namespace osemu

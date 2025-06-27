@@ -158,8 +158,24 @@ void Scheduler::dispatch(){
   }
 }
 
+//ultimate ticker global clock. run this in a separate thread.
+void Scheduler::global_clock(){
+  while(running_.load()){
+    
+    //sleep the thread to simulate polling..
+    std::this_thread::sleep_for(std::chrono::milliseconds(4));
+
+    std::lock_guard<std::mutex> lock(clock_mutex_);
+    ticks_++;
+
+    clock_cv_.notify_all();
+  }
+}
+
 void Scheduler::start(const Config& config) {
   running_ = true;
+  global_clock_thread_ = std::thread(&Scheduler::global_clock, this);
+
   for (uint32_t i = 0; i < config.cpuCount; ++i) {
     cpu_workers_.push_back(std::make_unique<CPUWorker>(i, *this));
     cpu_workers_.back()->start();
@@ -189,6 +205,11 @@ void Scheduler::stop() {
   }
 
   cpu_workers_.clear();
+  
+  if(global_clock_thread_.joinable()){
+    global_clock_thread_.join();
+  }
+
   std::cout << "Scheduler stopped." << std::endl;
 }
 
