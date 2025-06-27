@@ -33,8 +33,8 @@ class Scheduler::CPUWorker {
   //pushes a process into the cpu
   void assign_task(std::shared_ptr<PCB> pcb, int time_quantum){
     std::lock_guard<std::mutex> lock(mutex_);
+    time_quantum_ = time_quantum;
     current_task_ = std::move(pcb);
-    time_quantum_ = time_quantum_;
     idle_ = false;
 
     cv_.notify_one(); //wake up worker thread
@@ -90,6 +90,7 @@ class Scheduler::CPUWorker {
 
     if(pcb->isComplete()){
       pcb->finishTime = std::chrono::system_clock::now();
+      std::cout << "process finished!";
       scheduler_.move_to_finished(pcb);
     } else {
       scheduler_.move_to_ready(pcb);
