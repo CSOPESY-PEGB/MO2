@@ -69,7 +69,8 @@ class Scheduler::CPUWorker {
     scheduler_.move_to_running(pcb);
     std::ofstream log_file(pcb->processName + ".txt");
 
-    for(size_t i = 0; i < tq; i++){
+    int steps = 0;
+    while(steps < tq || !pcb->isComplete()){
       if(shutdown_requested_.load()){
         break;
       }
@@ -85,16 +86,17 @@ class Scheduler::CPUWorker {
         log_file << logs_after[i] << " Core:" << core_id_ << std::endl;
       }
 
+
       std::this_thread::sleep_for(std::chrono::milliseconds(100));
+      steps++;
     }
 
     if(pcb->isComplete()){
-      pcb->finishTime = std::chrono::system_clock::now();
-      std::cout << "process finished!";
-      scheduler_.move_to_finished(pcb);
-    } else {
-      scheduler_.move_to_ready(pcb);
-    }
+        pcb->finishTime = std::chrono::system_clock::now();
+        scheduler_.move_to_finished(pcb);
+      } else {
+        scheduler_.move_to_ready(pcb);
+      }
 
   }
 
@@ -184,10 +186,6 @@ void Scheduler::stop() {
       worker->join();
   }
 
-  for (auto& worker : cpu_workers_) {
-    worker->join();
-  }
-
   cpu_workers_.clear();
   std::cout << "Scheduler stopped." << std::endl;
 }
@@ -252,13 +250,13 @@ void Scheduler::move_to_running(std::shared_ptr<PCB> pcb) {
 
 void Scheduler::move_to_finished(std::shared_ptr<PCB> pcb) {
   {
-    std::lock_guard<std::mutex> lock(running_mutex_);
-    std::erase_if(running_processes_, [&](const auto& p) {
-      return p->processName == pcb->processName;
-    });
-  }
-  {
     std::lock_guard<std::mutex> lock(finished_mutex_);
+    {
+      std::lock_guard<std::mutex> lock(running_mutex_);
+      std::erase_if(running_processes_, [&](const auto& p) {
+            return p.get() == pcb.get();
+      });
+    }
     finished_processes_.push_back(std::move(pcb));
   }
 }

@@ -3,5 +3,5 @@ scheduler "FCFS"
 quantum-cycles 5
 batch-process-freq 5
 min-ins 3
-max-ins 10
+max-ins 100
 delay-per-exec 0
