@@ -172,7 +172,9 @@ void Scheduler::start(const Config& config) {
 }
 
 void Scheduler::stop() {
+  running_ = false;
   ready_queue_.shutdown();
+  
 
   if(dispatch_thread_.joinable()){
     dispatch_thread_.join();

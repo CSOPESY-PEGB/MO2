@@ -24,7 +24,7 @@ class ThreadSafeQueue {
 
   bool wait_and_pop(T& value) {
     std::unique_lock<std::mutex> lock(mutex_);
-    cond_.wait(lock, [this] { return !queue_.empty(); });
+    cond_.wait(lock, [this] { return !queue_.empty() || shutdown_requested_.load(); });
     
     if (shutdown_requested_.load() && queue_.empty()) {
       return false;
