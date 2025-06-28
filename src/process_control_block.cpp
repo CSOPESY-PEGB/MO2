@@ -15,6 +15,7 @@ PCB::PCB(std::string procName, size_t totalLines)
       assignedCore(std::nullopt),
       sleepCyclesRemaining(0)
 {
+  evaluator.handle_declare("x", Atom(static_cast<uint16_t>(0)));
 }
 
 PCB::PCB(std::string procName, const std::vector<Expr>& instrs)
@@ -27,6 +28,7 @@ PCB::PCB(std::string procName, const std::vector<Expr>& instrs)
       sleepCyclesRemaining(0),
       instructions(instrs)  
 {
+  evaluator.handle_declare("x", Atom(static_cast<uint16_t>(0)));
 }
 
 
@@ -62,19 +64,12 @@ std::string PCB::status() const {
         << totalInstructions;
 
   } else if (assignedCore.has_value()) {
-    
     oss << "Core: " << *assignedCore << "            " << currentInstruction
         << " / " << totalInstructions;
   } else {
-    
-    
-    
-    
-    
     oss << "Ready (in queue)   " << currentInstruction << " / "
         << totalInstructions;
   }
-
   return oss.str();
 }
 
@@ -85,14 +80,11 @@ bool PCB::executeCurrentInstruction() {
   
   try {
     const auto& instr = instructions[currentInstruction];
-    
-    
     if (instr.type == Expr::CALL && instr.var_name == "SLEEP" && instr.atom_value) {
       uint16_t cycles = evaluator.resolve_atom_value(*instr.atom_value);
       setSleepCycles(cycles);
       return true;
     }
-    
     
     if (instr.type == Expr::CALL && instr.var_name == "PRINT") {
         if (instr.atom_value) { 
@@ -117,7 +109,6 @@ bool PCB::executeCurrentInstruction() {
     evaluator.evaluate(instr);
     return true;
   } catch (const std::exception& e) {
-    
     return false;
   }
 }
@@ -140,4 +131,4 @@ void PCB::decrementSleepCycles() {
   }
 }
 
-}  
+}

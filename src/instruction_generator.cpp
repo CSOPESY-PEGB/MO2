@@ -9,7 +9,8 @@ InstructionGenerator::InstructionGenerator()
       value_dist(1, 1000),
       var_name_dist(0, 25), 
       for_count_dist(1, 5),
-      for_body_size_dist(1, 3)
+      for_body_size_dist(1, 3),
+      add_value_dist(1,10)
 {
 }
 
@@ -99,27 +100,15 @@ std::vector<Expr> InstructionGenerator::generateInstructions(size_t count, const
     instructions.reserve(count);
     
     for (size_t i = 0; i < count; i++) {
-        int instr_type = instruction_type_dist(rng);
-        
-        switch (instr_type) {
-            case 0: 
-                instructions.push_back(generatePrintInstruction(process_name));
-                break;
-            case 1: 
-                instructions.push_back(generateDeclareInstruction());
-                break;
-            case 2: 
-                instructions.push_back(generateAddInstruction());
-                break;
-            case 3: 
-                instructions.push_back(generateSubtractInstruction());
-                break;
-            case 4: 
-                instructions.push_back(generateSleepInstruction());
-                break;
-            case 5: 
-                instructions.push_back(generateForInstruction(3)); 
-                break;
+        if (i % 2 == 0) {
+            auto lhs = std::make_unique<Atom>("Value from: ", Atom::STRING);
+            auto rhs = std::make_unique<Atom>("x", Atom::NAME);
+            instructions.push_back(Expr::make_call_concat("PRINT", std::move(lhs), std::move(rhs)));
+        } else {
+            uint16_t add_val = add_value_dist(rng);
+            auto lhs = std::make_unique<Atom>("x", Atom::NAME);
+            auto rhs = std::make_unique<Atom>(add_val);
+            instructions.push_back(Expr::make_add("x", std::move(lhs), std::move(rhs)));
         }
     }
     

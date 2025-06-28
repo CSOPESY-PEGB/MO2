@@ -15,7 +15,8 @@ private:
     std::uniform_int_distribution<int> var_name_dist;
     std::uniform_int_distribution<int> for_count_dist;
     std::uniform_int_distribution<int> for_body_size_dist;
-    
+    std::uniform_int_distribution<uint16_t> add_value_dist;
+
     std::string generateVariableName();
     Expr generatePrintInstruction(const std::string& process_name);
     Expr generateDeclareInstruction();
