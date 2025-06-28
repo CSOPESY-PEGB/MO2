@@ -77,11 +77,15 @@ class Scheduler::CPUWorker {
       }
 
       {
-        //basically wait for the clock to increment.
-        std::unique_lock<std::mutex> lock(scheduler_.clock_mutex_); 
-        scheduler_.clock_cv_.wait(lock, [&](){
-          return scheduler_.get_ticks() - last_tick >=  scheduler_.delay_per_exec_ && (last_tick != scheduler_.get_ticks()) || shutdown_requested_.load(); 
-        }); //when clock increments, wait until the last tick and get ticks is 0 
+          std::unique_lock<std::mutex> lock(scheduler_.clock_mutex_); 
+          
+          // Wait for the clock to actually increment from our last observed tick
+          scheduler_.clock_cv_.wait(lock, [&](){
+              size_t current_tick = scheduler_.get_ticks();
+              return (current_tick > last_tick && 
+                      current_tick - last_tick >= scheduler_.delay_per_exec_) || 
+                    shutdown_requested_.load(); 
+          });
       }
 
       //once unlocked, just check first for shutdown request
@@ -94,10 +98,15 @@ class Scheduler::CPUWorker {
       pcb->step();
       
       //Get new logs produced by this step
-      //const auto& logs_after = pcb->getExecutionLogs();
-      //for (size_t i = logs_count_before; i < logs_after.size(); ++i) {
+      // const auto& logs_after = pcb->getExecutionLogs();
+      // for (size_t i = logs_count_before; i < logs_after.size(); ++i) {
       //   log_file << logs_after[i] << " Core:" << core_id_ << "tick: " << last_tick << std::endl;
-      //}
+      // }
+
+      std::cout << "Core " << core_id_ << " executing process " << pcb->processName
+            << " at tick: " << last_tick << std::endl;
+
+
 
       steps++; //TODO: REPLACE THIS TO BE WHEN WE ARE PAST OUR TIME QUANTUM, POLISH LOGIC
     }
@@ -174,7 +183,7 @@ void Scheduler::global_clock(){
   while(running_.load()){
     
     //sleep the thread to simulate polling..
-    std::this_thread::sleep_for(std::chrono::milliseconds(20)); //this is linux standard according to chatgippity. honestly just an arbitrary number
+    std::this_thread::sleep_for(std::chrono::milliseconds(200)); //this is linux standard according to chatgippity. honestly just an arbitrary number
 
     std::lock_guard<std::mutex> lock(clock_mutex_);
     clock_cv_.notify_all();//all other processes wait on this tick
