@@ -97,7 +97,13 @@ void view_process_screen(const std::string& process_name, Scheduler& scheduler) 
 
 
 
-void create_process(const std::string& process_name, Scheduler& scheduler, Config& config) {
+bool create_process(const std::string& process_name, Scheduler& scheduler, Config& config) {
+  //check for existing processname
+  if (scheduler.find_process_by_name(process_name) != nullptr) {
+    std::cerr << "Error: Process '" << process_name << "' already exists. Please choose a unique name." << std::endl;
+    return false; // Abort the creation
+  }
+
   InstructionGenerator generator;
 
   auto instructions = generator.generateRandomProgram(config.minInstructions, config.maxInstructions, process_name);
@@ -108,7 +114,7 @@ void create_process(const std::string& process_name, Scheduler& scheduler, Confi
   
   scheduler.submit_process(pcb);
   std::this_thread::sleep_for(std::chrono::milliseconds(100));
-
+  return true;
 }
 
 
@@ -171,15 +177,17 @@ void screen(std::vector<std::string>& args, Scheduler& scheduler, Config& config
   const ScreenCommand cmd = parse_command(args[0]);
 
   switch (cmd) {
-    case ScreenCommand::Start:
+    case ScreenCommand::Start: {
       if (args.size() != 2) {
         display_usage();
         return;
       }
-      create_process(args[1], scheduler, config);
-      view_process_screen(args[1],scheduler);
+      bool created_success = create_process(args[1], scheduler, config);
+      if (created_success) {
+        view_process_screen(args[1],scheduler);
+      }
       break;
-
+    }
     case ScreenCommand::Resume:
       if (args.size() != 2) {
         display_usage();
@@ -208,4 +216,4 @@ void screen(std::vector<std::string>& args, Scheduler& scheduler, Config& config
   }
 }
 
-}  
+}
