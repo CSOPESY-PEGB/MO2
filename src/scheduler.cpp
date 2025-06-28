@@ -71,7 +71,7 @@ class Scheduler::CPUWorker {
 
     size_t last_tick = scheduler_.ticks_.load(); //load the first tick, this will be important for detecting when to run again.
     int steps = 0;
-    while(steps < tq || !pcb->isComplete()){
+    while(steps < tq && !pcb->isComplete()){
       if(shutdown_requested_.load()){
         break;
       }
@@ -98,6 +98,15 @@ class Scheduler::CPUWorker {
         size_t logs_count_before = logs_before.size();
         
         pcb->step();
+
+        if(core_id_ == 0) {
+          // Print the process status to the console
+          std::cout << "Core: " << core_id_ << " Tick: " << last_tick
+                  << " Process: " << pcb->processName
+                  << " Steps: " << steps
+                  << " Time Quantum: " << tq << std::endl;
+        } 
+        
         
         //Get new logs produced by this step
         // const auto& logs_after = pcb->getExecutionLogs();
@@ -166,9 +175,16 @@ void Scheduler::dispatch(){
       for (auto& worker: cpu_workers_){
         if (worker->is_idle()){
           //this is FCFS LOGIC
-          worker->assign_task(process, process->totalInstructions);
-          dispatched = true;
-          break;
+          if (algorithm_ == SchedulingAlgorithm::FCFS) {
+            worker->assign_task(process, process->totalInstructions);
+            dispatched = true;
+            break;
+          } else if (algorithm_ == SchedulingAlgorithm::RoundRobin) {
+            // Round Robin logic
+            worker->assign_task(process, quantum_cycles_);
+            dispatched = true;
+            break;
+          }
         }
       }
     }
@@ -209,7 +225,8 @@ void Scheduler::start(const Config& config) {
   total_cores_ = config.cpuCount;
   delay_per_exec_ = config.delayCyclesPerInstruction;
   quantum_cycles_ = config.quantumCycles;
-  cores_ready_for_next_tick_ = 0;
+  cores_ready_for_next_tick_ = total_cores_;
+  algorithm_ = config.scheduler;
 
 
   for (uint32_t i = 0; i < config.cpuCount; ++i) {
