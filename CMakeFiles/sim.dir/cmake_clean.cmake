@@ -7,6 +7,8 @@ file(REMOVE_RECURSE
   "CMakeFiles/sim.dir/src/console.cpp.o.d"
   "CMakeFiles/sim.dir/src/dispatcher.cpp.o"
   "CMakeFiles/sim.dir/src/dispatcher.cpp.o.d"
+  "CMakeFiles/sim.dir/src/evaluator.cpp.o"
+  "CMakeFiles/sim.dir/src/evaluator.cpp.o.d"
   "CMakeFiles/sim.dir/src/instruction_generator.cpp.o"
   "CMakeFiles/sim.dir/src/instruction_generator.cpp.o.d"
   "CMakeFiles/sim.dir/src/instruction_parser.cpp.o"
