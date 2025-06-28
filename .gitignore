@@ -25,6 +25,7 @@
 *.la
 *.a
 *.lib
+CMakeCache.txt
 
 # Executables
 *.exe
