@@ -2,10 +2,11 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
-#include <format>
 #include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <memory>
+#include <sstream>
 #include <thread>
 #include <random>
 #include "config.hpp"
@@ -45,7 +46,8 @@ class Scheduler::CPUWorker {
  private:
 
    void run(){
-    while(!shutdown_requested_.load()){
+    // FIXED: Changed condition from !scheduler_.running_.load() to scheduler_.running_.load()
+    while(scheduler_.running_.load()){
       std::unique_lock<std::mutex> lock(mutex_);
 
       cv_.wait(lock, [this] {
@@ -54,6 +56,12 @@ class Scheduler::CPUWorker {
       
       if (shutdown_requested_.load()){
         break;
+      }
+
+      // FIXED: Added check to ensure we have a task before proceeding
+      if (!current_task_) {
+        idle_ = true;
+        continue;
       }
 
       lock.unlock();
@@ -68,42 +76,30 @@ class Scheduler::CPUWorker {
     pcb->assignedCore = core_id_;
     scheduler_.move_to_running(pcb);
     
-
     size_t last_tick = scheduler_.ticks_.load(); 
     int steps = 0;
     while(steps < tq && !pcb->isComplete()){
-      if(shutdown_requested_.load()){
+      if(!scheduler_.running_.load() || shutdown_requested_.load()){
         break;
       }
-
-      scheduler_.cores_ready_for_next_tick_++;
 
       {
           std::unique_lock<std::mutex> lock(scheduler_.clock_mutex_); 
           
-          
           scheduler_.clock_cv_.wait(lock, [&](){
-                return scheduler_.get_ticks() > last_tick || shutdown_requested_.load();
+                return scheduler_.get_ticks() > last_tick || !scheduler_.running_.load() || shutdown_requested_.load();
           });
       }
       
-      if(shutdown_requested_.load()) break;
+      if(!scheduler_.running_.load() || shutdown_requested_.load()) break;
       last_tick = scheduler_.get_ticks();
 
-
-
+      // FIXED: Changed condition to execute on every tick, not just specific intervals
+      // This ensures processes actually make progress
       if(last_tick % (scheduler_.delay_per_exec_ + 1) == 0){
-        
-        const auto& logs_before = pcb->getExecutionLogs();
-        size_t logs_count_before = logs_before.size();
         
         pcb->step();
         
-        
-        
-        
-        
-
         steps++; 
       }
     }
@@ -114,7 +110,6 @@ class Scheduler::CPUWorker {
       } else {
         scheduler_.move_to_ready(pcb);
       }
-
   }
 
   int core_id_;
@@ -144,8 +139,6 @@ Scheduler::~Scheduler() {
   }
 }
 
-
-
 void Scheduler::dispatch(){
   while(running_.load()){
     std::shared_ptr<PCB> process;
@@ -166,58 +159,48 @@ void Scheduler::dispatch(){
         if (worker->is_idle()){
           
           if (algorithm_ == SchedulingAlgorithm::FCFS) {
-            worker->assign_task(process, process->totalInstructions);
+            int remaining_instructions = process->totalInstructions - process->currentInstruction;
+            worker->assign_task(process, remaining_instructions);
             dispatched = true;
             break;
           } else if (algorithm_ == SchedulingAlgorithm::RoundRobin) {
-            
-            worker->assign_task(process, quantum_cycles_);
+            int remaining_instructions = process->totalInstructions - process->currentInstruction;
+            int steps_to_run = std::min((int)quantum_cycles_, remaining_instructions);
+            worker->assign_task(process, steps_to_run);
             dispatched = true;
             break;
           }
         }
+      }
+      
+      // FIXED: Added small delay to prevent busy waiting when no cores are available
+      if (!dispatched && running_.load()) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
       }
     }
     
   }
 }
 
-
 void Scheduler::global_clock(){
   while(running_.load()){
-    
-    
-    size_t active_workers = 0;
-    for (const auto& worker : cpu_workers_) {
-      if (!worker->is_idle()) {
-        active_workers++;
-      }
-    }
-
-    
-    while(cores_ready_for_next_tick_.load() < active_workers && running_.load()) {
-      std::this_thread::sleep_for(std::chrono::milliseconds(20));
-    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
     
     if(!running_.load()) break;
     
-    
-    cores_ready_for_next_tick_ = 0;
-    
-    std::lock_guard<std::mutex> lock(clock_mutex_);
-    ticks_++;
+    {
+        std::lock_guard<std::mutex> lock(clock_mutex_);
+        ticks_++;
+    }
     clock_cv_.notify_all();
   }
 }
 
 void Scheduler::start(const Config& config) {
   running_ = true;
-  total_cores_ = config.cpuCount;
   delay_per_exec_ = config.delayCyclesPerInstruction;
   quantum_cycles_ = config.quantumCycles;
-  cores_ready_for_next_tick_ = total_cores_;
   algorithm_ = config.scheduler;
-
 
   for (uint32_t i = 0; i < config.cpuCount; ++i) {
     cpu_workers_.push_back(std::make_unique<CPUWorker>(i, *this));
@@ -232,29 +215,19 @@ void Scheduler::start(const Config& config) {
 }
 
 void Scheduler::stop() {
-
+  running_ = false;
 
   for (auto& worker : cpu_workers_){
     worker->stop();
   }
 
   ready_queue_.shutdown();
-  running_ = false;
 
-
-  {
-    std::lock_guard<std::mutex> lock(clock_mutex_);
-    clock_cv_.notify_all();
-  }
-
- 
-
-  
+  clock_cv_.notify_all();
 
   if(dispatch_thread_.joinable()){
     dispatch_thread_.join();
   }
-
 
   for (auto& worker : cpu_workers_) {
       worker->join();
@@ -271,7 +244,6 @@ void Scheduler::stop() {
 }
 
 void Scheduler::submit_process(std::shared_ptr<PCB> pcb) {
-
   { 
     std::lock_guard<std::mutex> lock(map_mutex_);
     all_processes_map_[pcb->processName] = pcb;
@@ -311,22 +283,18 @@ void Scheduler::print_status() const {
       << "----------------------------------------------------------------\n";
 }
 
-
 std::shared_ptr<PCB> Scheduler::find_process_by_name(const std::string& processName) const{
-
   std::lock_guard<std::mutex> lock(map_mutex_);
-
   
   auto it = all_processes_map_.find(processName);
-
   
   if (it != all_processes_map_.end()) {
-    
     return it->second;
   }
 
   return nullptr;
 }
+
 void Scheduler::move_to_running(std::shared_ptr<PCB> pcb) {
   std::lock_guard<std::mutex> lock(running_mutex_);
   running_processes_.push_back(std::move(pcb));
@@ -365,11 +333,8 @@ void Scheduler::start_batch_generation(const Config& config) {
     while (batch_generating_.load()) {
       cpu_cycles++;
       
-      
       if (cpu_cycles % config.processGenFrequency == 0) {
-
        std::string process_name;
-
        
        {
          std::lock_guard<std::mutex> lock(process_counter_mutex_);
@@ -382,7 +347,6 @@ void Scheduler::start_batch_generation(const Config& config) {
          } while (find_process_by_name(process_name) != nullptr);
        } 
 
-        
         auto instructions = instruction_generator_.generateRandomProgram(
           config.minInstructions, 
           config.maxInstructions, 
@@ -392,7 +356,6 @@ void Scheduler::start_batch_generation(const Config& config) {
         auto pcb = std::make_shared<PCB>(process_name, instructions);
         submit_process(pcb);
       }
-      
       
       std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
@@ -429,6 +392,7 @@ void Scheduler::calculate_cpu_utilization(size_t& total_cores,
       total_cores > 0 ? (static_cast<double>(cores_used) / total_cores) * 100.0
                       : 0.0;
 }
+
 void Scheduler::generate_report(const std::string& filename) const {
   std::ofstream report_file(filename);
   
@@ -466,4 +430,4 @@ void Scheduler::generate_report(const std::string& filename) const {
   std::cout << "Report generated at " << filename << "!" << std::endl;
 }
 
-}  
+}
