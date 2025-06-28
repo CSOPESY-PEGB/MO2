@@ -1,20 +1,23 @@
 DECLARE(A, 1)
 PRINT("Powers of Two:")
-PRINT(A)
+PRINT("2^0 is " +A)
 SLEEP(1)
+
 DECLARE(B, 0)
 ADD(B, A, A)
-PRINT(B)
+PRINT("2^1 is " +B)
 SLEEP(10)
+
 DECLARE(C, 0)
 ADD(C, B, B)
-PRINT(C)
+PRINT("2^2 is " +C)
 SLEEP(10)
+
 DECLARE(D, 0)
 ADD(D, C, C)
-PRINT(D)
+PRINT("2^3 is " +D)
 SLEEP(10)
+
 DECLARE(E, 0)
 ADD(E, D, D)
-PRINT(E)
-
+PRINT("2^4 is " +E)

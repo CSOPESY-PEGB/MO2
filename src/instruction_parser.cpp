@@ -278,6 +278,33 @@ ParseResult InstructionParser::parse_call(const std::string& input, Expr& result
         return ParseResult(false, remaining, "Expected opening parenthesis");
     }
     
+    
+    Atom lhs_atom(0);
+    ParseResult lhs_res = parse_atom(remaining, lhs_atom);
+    if (lhs_res.success) {
+        std::string temp_remaining = ltrim(lhs_res.remaining);
+        if (!temp_remaining.empty() && temp_remaining[0] == '+') {
+            consume_tag(temp_remaining, "+", temp_remaining); 
+            
+            Atom rhs_atom(0);
+            ParseResult rhs_res = parse_atom(ltrim(temp_remaining), rhs_atom);
+            if (!rhs_res.success) {
+                return ParseResult(false, temp_remaining, "Expected right-hand side for concatenation");
+            }
+            
+            remaining = ltrim(rhs_res.remaining);
+            if (!consume_tag(remaining, ")", remaining)) {
+                return ParseResult(false, remaining, "Expected closing parenthesis after concatenation");
+            }
+            
+            result = Expr::make_call_concat(name_atom.string_value, 
+                                            std::make_unique<Atom>(lhs_atom),
+                                            std::make_unique<Atom>(rhs_atom));
+            return ParseResult(true, remaining);
+        }
+    }
+
+    
     Atom arg_atom(0);
     ParseResult arg_result = parse_atom(remaining, arg_atom);
     if (!arg_result.success) {
@@ -410,10 +437,10 @@ ParseResult InstructionParser::parse_program(const std::string& input, std::vect
     return ParseResult(true, remaining);
 }
 
-// InstructionEvaluator implementation
+
 
 InstructionEvaluator::InstructionEvaluator() {
-    // Initialize with empty variable map and output log
+    
 }
 
 void InstructionEvaluator::evaluate(const Expr& expr) {
@@ -427,13 +454,21 @@ void InstructionEvaluator::evaluate(const Expr& expr) {
         }
         
         case Expr::CALL: {
-            if (!expr.atom_value) {
-                throw std::runtime_error("Invalid CALL: missing argument");
-            }
             if (expr.var_name == "PRINT") {
-                // For now, use empty process name - will be set by caller
-                handle_print(*expr.atom_value, "");
+                if (expr.atom_value) { 
+                    handle_print(*expr.atom_value, "");
+                } else if (expr.lhs && expr.rhs) { 
+                    std::string lhs_str = print_atom_to_string(*expr.lhs);
+                    std::string rhs_str = print_atom_to_string(*expr.rhs);
+                    Atom concatenated_atom(lhs_str + rhs_str, Atom::STRING);
+                    handle_print(concatenated_atom, "");
+                } else {
+                    throw std::runtime_error("Invalid PRINT call: malformed arguments");
+                }
             } else if (expr.var_name == "SLEEP") {
+                if (!expr.atom_value) {
+                    throw std::runtime_error("Invalid SLEEP call: missing argument");
+                }
                 handle_sleep(*expr.atom_value);
             } else {
                 throw std::runtime_error("Unknown function: " + expr.var_name);
@@ -467,7 +502,7 @@ void InstructionEvaluator::evaluate(const Expr& expr) {
         
         case Expr::CONSTANT:
         case Expr::VOID_EXPR:
-            // No operation needed for constants and void
+            
             break;
             
         default:
@@ -488,7 +523,7 @@ uint16_t InstructionEvaluator::resolve_atom_value(const Atom& atom) {
             if (it != variables.end()) {
                 return it->second;
             } else {
-                // Variable not found, return 0 as per spec
+                
                 return 0;
             }
         }
@@ -508,12 +543,12 @@ std::string InstructionEvaluator::print_atom_to_string(const Atom& atom) {
         case Atom::NUMBER:
             return std::to_string(atom.number_value);
         case Atom::NAME: {
-            // Resolve variable name to its value
+            
             auto it = variables.find(atom.string_value);
             if (it != variables.end()) {
                 return std::to_string(it->second);
             } else {
-                return "0"; // Default value for undefined variables
+                return "0"; 
             }
         }
         default:
@@ -525,7 +560,7 @@ void InstructionEvaluator::handle_declare(const std::string& var_name, const Ato
     if (value.type == Atom::NUMBER) {
         variables[var_name] = value.number_value;
     } else if (value.type == Atom::NAME) {
-        // Resolve the variable value
+        
         variables[var_name] = resolve_atom_value(value);
     } else {
         throw std::runtime_error("DECLARE requires numeric value or variable reference");
@@ -535,10 +570,10 @@ void InstructionEvaluator::handle_declare(const std::string& var_name, const Ato
 std::string InstructionEvaluator::handle_print(const Atom& arg, const std::string& process_name) {
     std::string output = print_atom_to_string(arg);
     
-    // Create log entry with timestamp
     auto now = std::chrono::system_clock::now();
-    std::string timestamp = std::format("{:%m/%d/%Y %I:%M:%S%p}", now);
-    
+    auto truncated_time = std::chrono::time_point_cast<std::chrono::seconds>(now);
+    std::string timestamp = std::format("{:%m/%d/%Y %I:%M:%S %p}", truncated_time);
+
     std::string log_entry;
     if (!process_name.empty()) {
         log_entry = std::format("({}) \"{}\"", timestamp, output);
@@ -552,18 +587,18 @@ std::string InstructionEvaluator::handle_print(const Atom& arg, const std::strin
 
 void InstructionEvaluator::handle_sleep(const Atom& duration) {
     uint16_t cycles = resolve_atom_value(duration);
-    // Note: In the actual emulator, this should interact with the CPU cycle system
-    // For now, we'll just store the sleep duration - the scheduler will handle it
+    
+    
 }
 
 void InstructionEvaluator::handle_add(const std::string& var, const Atom& lhs, const Atom& rhs) {
     uint16_t left_val = resolve_atom_value(lhs);
     uint16_t right_val = resolve_atom_value(rhs);
     
-    // Perform addition with overflow protection (uint16 max is 65535)
+    
     uint32_t result = static_cast<uint32_t>(left_val) + static_cast<uint32_t>(right_val);
     if (result > 65535) {
-        result = 65535; // Clamp to max uint16 as per spec
+        result = 65535; 
     }
     
     variables[var] = static_cast<uint16_t>(result);
@@ -573,12 +608,12 @@ void InstructionEvaluator::handle_sub(const std::string& var, const Atom& lhs, c
     uint16_t left_val = resolve_atom_value(lhs);
     uint16_t right_val = resolve_atom_value(rhs);
     
-    // Perform subtraction with underflow protection (uint16 min is 0)
+    
     uint16_t result;
     if (left_val >= right_val) {
         result = left_val - right_val;
     } else {
-        result = 0; // Clamp to min uint16 as per spec
+        result = 0; 
     }
     
     variables[var] = result;
@@ -597,9 +632,4 @@ void InstructionEvaluator::handle_for(const std::vector<Expr>& body, const Atom&
 void InstructionEvaluator::clear_variables() {
     variables.clear();
 }
-
-void InstructionEvaluator::dump_variables() const {
-    // This could be used for debugging - variables are stored in the evaluator
-}
-
-}  // namespace osemu
+}  

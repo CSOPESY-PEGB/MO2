@@ -21,39 +21,7 @@ namespace osemu {
 namespace {
 
 
-void tail_log_file(const std::string& filename, std::atomic<bool>& should_run) {
-  std::ifstream log_file(filename);
-  if (!log_file.is_open()) {
-    return;  
-  }
 
-  
-  
-
-  std::string line;
-  
-  log_file.seekg(0, std::ios::beg);
-  while (std::getline(log_file, line)) {
-    std::cout << line << std::endl;
-  }
-
-  
-  while (should_run.load()) {
-    
-    while (std::getline(log_file, line)) {
-      std::cout << line << std::endl;
-    }
-
-    
-    
-    if (log_file.eof()) {
-      log_file.clear();
-    }
-
-    
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
-  }
-}
 
 
 std::shared_ptr<PCB> find_process(const std::string& process_name,
@@ -65,19 +33,7 @@ std::shared_ptr<PCB> find_process(const std::string& process_name,
   return nullptr;
 }
 
-void display_process_logs(const std::string& process_name) {
-  std::string filename = process_name + ".txt";
-  std::ifstream log_file(filename);
-  if (log_file.is_open()) {
-    std::string line;
-    while (std::getline(log_file, line)) {
-      std::cout << line << std::endl;
-    }
-    log_file.close();
-  } else {
-    std::cout << "(No logs yet)" << std::endl;
-  }
-}
+
 void view_process_screen(const std::string& process_name, Scheduler& scheduler) {
   // scheduler gets the process
   try {
@@ -95,7 +51,14 @@ void view_process_screen(const std::string& process_name, Scheduler& scheduler) 
       std::cout << "ID: "  << pcb->processID<< std::endl;
       std::cout << "Logs:" << std::endl;
 
-      display_process_logs(process_name);
+      const auto& logs = pcb->getExecutionLogs();
+      if (logs.empty()) {
+        std::cout << "(No logs yet)" << std::endl;
+      } else {
+        for (const auto& log : logs) {
+          std::cout << log << std::endl;
+        }
+      }
 
       std::cout << std::endl;
       std::cout << "Current instruction line: "<< pcb->currentInstruction << std::endl;
@@ -131,52 +94,16 @@ void view_process_screen(const std::string& process_name, Scheduler& scheduler) 
 }
 
 
-void view_process_log(const std::string& process_name) {
-  std::string filename = process_name + ".txt";
 
-  
-  if (!std::filesystem::exists(filename)) {
-    std::cout << "Log file for process '" << process_name
-              << "' not found. The process may not have started writing yet."
-              << std::endl;
-    return;
+
+
+bool create_process(const std::string& process_name, Scheduler& scheduler, Config& config) {
+  //check for existing processname
+  if (scheduler.find_process_by_name(process_name) != nullptr) {
+    std::cerr << "Error: Process '" << process_name << "' already exists. Please choose a unique name." << std::endl;
+    return false; // Abort the creation
   }
 
-  
-  std::cout << "\x1b[2J\x1b[H";
-  std::cout << "--- Viewing log for '" << process_name
-            << "'. Type 'exit' to return. ---" << std::endl;
-
-  
-  std::atomic<bool> tailer_running = true;
-
-  
-  std::thread tailer_thread(tail_log_file, filename, std::ref(tailer_running));
-
-  
-  std::string input_line;
-  while (std::cout << process_name << "> " << std::flush &&
-         std::getline(std::cin, input_line)) {
-    if (input_line == "exit") {
-      break;
-    }
-  }
-
-  
-  tailer_running = false;
-
-  
-  if (tailer_thread.joinable()) {
-    tailer_thread.join();
-  }
-
-  
-  std::cout << "\x1b[2J\x1b[H";
-  console_prompt();
-}
-
-
-void create_process(const std::string& process_name, Scheduler& scheduler, Config& config) {
   InstructionGenerator generator;
 
   auto instructions = generator.generateRandomProgram(config.minInstructions, config.maxInstructions, process_name);
@@ -187,7 +114,7 @@ void create_process(const std::string& process_name, Scheduler& scheduler, Confi
   
   scheduler.submit_process(pcb);
   std::this_thread::sleep_for(std::chrono::milliseconds(100));
-
+  return true;
 }
 
 
@@ -250,15 +177,17 @@ void screen(std::vector<std::string>& args, Scheduler& scheduler, Config& config
   const ScreenCommand cmd = parse_command(args[0]);
 
   switch (cmd) {
-    case ScreenCommand::Start:
+    case ScreenCommand::Start: {
       if (args.size() != 2) {
         display_usage();
         return;
       }
-      create_process(args[1], scheduler, config);
-      view_process_screen(args[1],scheduler);
+      bool created_success = create_process(args[1], scheduler, config);
+      if (created_success) {
+        view_process_screen(args[1],scheduler);
+      }
       break;
-
+    }
     case ScreenCommand::Resume:
       if (args.size() != 2) {
         display_usage();
@@ -287,4 +216,4 @@ void screen(std::vector<std::string>& args, Scheduler& scheduler, Config& config
   }
 }
 
-}  
+}

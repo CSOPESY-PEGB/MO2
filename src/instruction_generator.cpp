@@ -5,9 +5,9 @@ namespace osemu {
 
 InstructionGenerator::InstructionGenerator() 
     : rng(std::random_device{}()),
-      instruction_type_dist(0, 5), // PRINT, DECLARE, ADD, SUBTRACT, SLEEP, FOR
+      instruction_type_dist(0, 5), 
       value_dist(1, 1000),
-      var_name_dist(0, 25), // a-z
+      var_name_dist(0, 25), 
       for_count_dist(1, 5),
       for_body_size_dist(1, 3)
 {
@@ -19,7 +19,7 @@ std::string InstructionGenerator::generateVariableName() {
 }
 
 Expr InstructionGenerator::generatePrintInstruction(const std::string& process_name) {
-    // Generate PRINT("Hello world from <process_name>!")
+    
     std::string message = "Hello world from " + process_name + "!";
     auto atom = std::make_unique<Atom>(message, Atom::STRING);
     return Expr::make_call("PRINT", std::move(atom));
@@ -55,7 +55,7 @@ Expr InstructionGenerator::generateSubtractInstruction() {
 }
 
 Expr InstructionGenerator::generateSleepInstruction() {
-    std::uniform_int_distribution<uint16_t> sleep_dist(1, 10); // 1-10 CPU cycles
+    std::uniform_int_distribution<uint16_t> sleep_dist(1, 10); 
     uint16_t sleep_cycles = sleep_dist(rng);
     auto atom = std::make_unique<Atom>(sleep_cycles);
     return Expr::make_call("SLEEP", std::move(atom));
@@ -63,7 +63,7 @@ Expr InstructionGenerator::generateSleepInstruction() {
 
 Expr InstructionGenerator::generateForInstruction(int max_depth) {
     if (max_depth <= 0) {
-        // Generate a simple instruction instead
+        
         return generatePrintInstruction("nested");
     }
     
@@ -102,23 +102,23 @@ std::vector<Expr> InstructionGenerator::generateInstructions(size_t count, const
         int instr_type = instruction_type_dist(rng);
         
         switch (instr_type) {
-            case 0: // PRINT
+            case 0: 
                 instructions.push_back(generatePrintInstruction(process_name));
                 break;
-            case 1: // DECLARE
+            case 1: 
                 instructions.push_back(generateDeclareInstruction());
                 break;
-            case 2: // ADD
+            case 2: 
                 instructions.push_back(generateAddInstruction());
                 break;
-            case 3: // SUBTRACT
+            case 3: 
                 instructions.push_back(generateSubtractInstruction());
                 break;
-            case 4: // SLEEP
+            case 4: 
                 instructions.push_back(generateSleepInstruction());
                 break;
-            case 5: // FOR
-                instructions.push_back(generateForInstruction(3)); // Max 3 levels deep
+            case 5: 
+                instructions.push_back(generateForInstruction(3)); 
                 break;
         }
     }
@@ -133,4 +133,4 @@ std::vector<Expr> InstructionGenerator::generateRandomProgram(size_t min_instruc
     return generateInstructions(instruction_count, process_name);
 }
 
-}  // namespace osemu
+}  

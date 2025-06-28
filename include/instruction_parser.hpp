@@ -44,7 +44,6 @@ struct Expr {
     
     Expr(Type t) : type(t) {}
     
-    // Copy constructor
     Expr(const Expr& other)
         : type(other.type), var_name(other.var_name) {
         if (other.atom_value) {
@@ -62,7 +61,6 @@ struct Expr {
         body = other.body;
     }
     
-    // Copy assignment operator
     Expr& operator=(const Expr& other) {
         if (this != &other) {
             type = other.type;
@@ -92,14 +90,12 @@ struct Expr {
         return *this;
     }
     
-    // Move constructor
     Expr(Expr&& other) noexcept
         : type(other.type), var_name(std::move(other.var_name)),
           atom_value(std::move(other.atom_value)),
           lhs(std::move(other.lhs)), rhs(std::move(other.rhs)),
           n(std::move(other.n)), body(std::move(other.body)) {}
     
-    // Move assignment operator
     Expr& operator=(Expr&& other) noexcept {
         if (this != &other) {
             type = other.type;
@@ -124,6 +120,14 @@ struct Expr {
         Expr e(CALL);
         e.var_name = std::move(name);
         e.atom_value = std::move(arg);
+        return e;
+    }
+
+    static Expr make_call_concat(std::string name, std::unique_ptr<Atom> lhs, std::unique_ptr<Atom> rhs) {
+        Expr e(CALL);
+        e.var_name = std::move(name);
+        e.lhs = std::move(lhs);
+        e.rhs = std::move(rhs);
         return e;
     }
     
@@ -190,12 +194,12 @@ private:
     std::unordered_map<std::string, uint16_t> variables;
     std::vector<std::string> output_log;
     
-    uint16_t resolve_atom_value(const Atom& atom);
-    std::string print_atom_to_string(const Atom& atom);
-    
 public:
     InstructionEvaluator();
     
+    uint16_t resolve_atom_value(const Atom& atom);
+    std::string print_atom_to_string(const Atom& atom);
+
     void evaluate(const Expr& expr);
     void evaluate_program(const std::vector<Expr>& program);
     
@@ -212,6 +216,6 @@ public:
     void clear_output_log() { output_log.clear(); }
 };
 
-}  // namespace osemu
+}
 
-#endif  // OSEMU_INSTRUCTION_PARSER_H_
+#endif

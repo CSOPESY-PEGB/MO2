@@ -44,12 +44,14 @@ int main() {
     try {
       Commands cmd = from_str(tokens.front());
 
+      tokens.erase(tokens.begin());
+      dispatch(cmd, tokens, cfg, scheduler);
+
       if (cmd == Commands::Exit) {
         break;
       }
 
-      tokens.erase(tokens.begin());
-      dispatch(cmd, tokens, cfg, scheduler);
+
     } catch (const std::exception& ex) {
       std::cerr << "Error: " << ex.what() << '\n';
     }

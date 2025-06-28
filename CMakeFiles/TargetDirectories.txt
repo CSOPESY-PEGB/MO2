@@ -1,0 +1,3 @@
+/Users/armaine/documents/Week2-OSEmulator/CMakeFiles/sim.dir
+/Users/armaine/documents/Week2-OSEmulator/CMakeFiles/edit_cache.dir
+/Users/armaine/documents/Week2-OSEmulator/CMakeFiles/rebuild_cache.dir
