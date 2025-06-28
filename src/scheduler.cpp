@@ -90,19 +90,23 @@ class Scheduler::CPUWorker {
       if(shutdown_requested_.load()) break;
       last_tick = scheduler_.get_ticks();
 
-      // Clear previous logs to get only new output from this step
-      const auto& logs_before = pcb->getExecutionLogs();
-      size_t logs_count_before = logs_before.size();
-      
-      pcb->step();
-      
-      //Get new logs produced by this step
-      // const auto& logs_after = pcb->getExecutionLogs();
-      // for (size_t i = logs_count_before; i < logs_after.size(); ++i) {
-      //   log_file << logs_after[i] << " Core:" << core_id_ << "tick: " << last_tick << std::endl;
-      // }
 
-      steps++; //TODO: REPLACE THIS TO BE WHEN WE ARE PAST OUR TIME QUANTUM, POLISH LOGIC
+
+      if(last_tick % (scheduler_.delay_per_exec_ + 1) == 0){
+        // Clear previous logs to get only new output from this step
+        const auto& logs_before = pcb->getExecutionLogs();
+        size_t logs_count_before = logs_before.size();
+        
+        pcb->step();
+        
+        //Get new logs produced by this step
+        // const auto& logs_after = pcb->getExecutionLogs();
+        // for (size_t i = logs_count_before; i < logs_after.size(); ++i) {
+        //   log_file << logs_after[i] << " Core:" << core_id_ << "tick: " << last_tick << std::endl;
+        // }
+
+        steps++; //TODO: REPLACE THIS TO BE WHEN WE ARE PAST OUR TIME QUANTUM, POLISH LOGIC
+      }
     }
 
     if(pcb->isComplete()){
@@ -195,6 +199,8 @@ void Scheduler::global_clock(){
 void Scheduler::start(const Config& config) {
   running_ = true;
   total_cores_ = config.cpuCount;
+  delay_per_exec_ = config.delayCyclesPerInstruction;
+  quantum_cycles_ = config.quantumCycles;
   cores_ready_for_next_tick_ = total_cores_;
 
   global_clock_thread_ = std::thread(&Scheduler::global_clock, this);

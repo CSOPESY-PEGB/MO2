@@ -82,6 +82,7 @@ class Scheduler {
   //config stuff
   size_t batch_process_freq_{1};
   size_t delay_per_exec_{0};
+  size_t quantum_cycles_{5};
 
 };
 
