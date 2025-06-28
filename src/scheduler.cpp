@@ -30,14 +30,14 @@ class Scheduler::CPUWorker {
     cv_.notify_one();
   }
   
-  //pushes a process into the cpu
+  
   void assign_task(std::shared_ptr<PCB> pcb, int time_quantum){
     std::lock_guard<std::mutex> lock(mutex_);
     time_quantum_ = time_quantum;
     current_task_ = std::move(pcb);
     idle_ = false;
 
-    cv_.notify_one(); //wake up worker thread
+    cv_.notify_one(); 
   };
 
   bool is_idle() const { return idle_.load(); };
@@ -67,9 +67,9 @@ class Scheduler::CPUWorker {
   void execute_process(std::shared_ptr<PCB> pcb, int tq) {
     pcb->assignedCore = core_id_;
     scheduler_.move_to_running(pcb);
-    //std::ofstream log_file(pcb->processName + ".txt");
+    
 
-    size_t last_tick = scheduler_.ticks_.load(); //load the first tick, this will be important for detecting when to run again.
+    size_t last_tick = scheduler_.ticks_.load(); 
     int steps = 0;
     while(steps < tq && !pcb->isComplete()){
       if(shutdown_requested_.load()){
@@ -81,40 +81,30 @@ class Scheduler::CPUWorker {
       {
           std::unique_lock<std::mutex> lock(scheduler_.clock_mutex_); 
           
-          // Wait for the clock to actually increment from our last observed tick
+          
           scheduler_.clock_cv_.wait(lock, [&](){
                 return scheduler_.get_ticks() > last_tick || shutdown_requested_.load();
           });
       }
-      //once unlocked, just check first for shutdown request
+      
       if(shutdown_requested_.load()) break;
       last_tick = scheduler_.get_ticks();
 
 
 
       if(last_tick % (scheduler_.delay_per_exec_ + 1) == 0){
-        // Clear previous logs to get only new output from this step
+        
         const auto& logs_before = pcb->getExecutionLogs();
         size_t logs_count_before = logs_before.size();
         
         pcb->step();
-
-        // if(core_id_ == 0) {
-        //   // Print the process status to the console
-        //   std::cout << "Core: " << core_id_ << " Tick: " << last_tick
-        //           << " Process: " << pcb->processName
-        //           << " Steps: " << steps
-        //           << " Time Quantum: " << tq << std::endl;
-        // }
-        //
         
-        //Get new logs produced by this step
-        // const auto& logs_after = pcb->getExecutionLogs();
-        // for (size_t i = logs_count_before; i < logs_after.size(); ++i) {
-        //   log_file << logs_after[i] << " Core:" << core_id_ << "tick: " << last_tick << std::endl;
-        // }
+        
+        
+        
+        
 
-        steps++; //TODO: REPLACE THIS TO BE WHEN WE ARE PAST OUR TIME QUANTUM, POLISH LOGIC
+        steps++; 
       }
     }
 
@@ -134,11 +124,11 @@ class Scheduler::CPUWorker {
   std::atomic<bool> idle_{true};
   std::atomic<bool> shutdown_requested_{false};
 
-  //current process
+  
   std::shared_ptr<PCB> current_task_;
   int time_quantum_;
 
-  //synchronization
+  
   std::mutex mutex_;
   std::condition_variable cv_;
 };
@@ -155,7 +145,7 @@ Scheduler::~Scheduler() {
 }
 
 
-//dispatches processes from the ready queue to the cpu worker cores.
+
 void Scheduler::dispatch(){
   while(running_.load()){
     std::shared_ptr<PCB> process;
@@ -174,13 +164,13 @@ void Scheduler::dispatch(){
     while (!dispatched && running_.load()){
       for (auto& worker: cpu_workers_){
         if (worker->is_idle()){
-          //this is FCFS LOGIC
+          
           if (algorithm_ == SchedulingAlgorithm::FCFS) {
             worker->assign_task(process, process->totalInstructions);
             dispatched = true;
             break;
           } else if (algorithm_ == SchedulingAlgorithm::RoundRobin) {
-            // Round Robin logic
+            
             worker->assign_task(process, quantum_cycles_);
             dispatched = true;
             break;
@@ -192,11 +182,11 @@ void Scheduler::dispatch(){
   }
 }
 
-//ultimate ticker global clock. run this in a separate thread.
+
 void Scheduler::global_clock(){
   while(running_.load()){
     
-    // Determine how many workers are active. We only need to wait for them.
+    
     size_t active_workers = 0;
     for (const auto& worker : cpu_workers_) {
       if (!worker->is_idle()) {
@@ -204,14 +194,14 @@ void Scheduler::global_clock(){
       }
     }
 
-    // Wait for all cores to be ready for the next tick
+    
     while(cores_ready_for_next_tick_.load() < active_workers && running_.load()) {
       std::this_thread::sleep_for(std::chrono::milliseconds(20));
     }
     
     if(!running_.load()) break;
     
-    // Reset counter for next cycle
+    
     cores_ready_for_next_tick_ = 0;
     
     std::lock_guard<std::mutex> lock(clock_mutex_);
@@ -282,7 +272,7 @@ void Scheduler::stop() {
 
 void Scheduler::submit_process(std::shared_ptr<PCB> pcb) {
 
-  { // add to the all process lookup table (not for use for running and ready queue)
+  { 
     std::lock_guard<std::mutex> lock(map_mutex_);
     all_processes_map_[pcb->processName] = pcb;
   }
@@ -326,12 +316,12 @@ std::shared_ptr<PCB> Scheduler::find_process_by_name(const std::string& processN
 
   std::lock_guard<std::mutex> lock(map_mutex_);
 
-  // Use the map's .find() method for an efficient O(1) search.
+  
   auto it = all_processes_map_.find(processName);
 
-  // Check if the iterator is not at the end, which means the key was found.
+  
   if (it != all_processes_map_.end()) {
-    // 'it->second' contains the std::shared_ptr<PCB> associated with the name.
+    
     return it->second;
   }
 
@@ -344,28 +334,22 @@ void Scheduler::move_to_running(std::shared_ptr<PCB> pcb) {
 
 void Scheduler::move_to_finished(std::shared_ptr<PCB> pcb) {
   {
-    std::lock_guard<std::mutex> lock(finished_mutex_);
-    {
-      std::lock_guard<std::mutex> lock(running_mutex_);
-      std::erase_if(running_processes_, [&](const auto& p) {
-            return p.get() == pcb.get();
-      });
-    }
+    std::lock_guard<std::mutex> lock(running_mutex_);
+    std::lock_guard<std::mutex> lock2(finished_mutex_);
+    std::erase_if(running_processes_,
+                  [&](const auto& p) { return p.get() == pcb.get(); });
     finished_processes_.push_back(std::move(pcb));
   }
 }
 
-void Scheduler::move_to_ready(std::shared_ptr<PCB> pcb){
-
+void Scheduler::move_to_ready(std::shared_ptr<PCB> pcb) {
   {
-    {
-      std::lock_guard<std::mutex> lock(running_mutex_);
-      std::erase_if(running_processes_, [&](const auto& p) {
-            return p.get() == pcb.get();
-      });
-    }
-    ready_queue_.push(std::move(pcb));
+    std::lock_guard<std::mutex> lock(running_mutex_);
+    std::erase_if(running_processes_,
+                  [&](const auto& p) { return p.get() == pcb.get(); });
   }
+
+  ready_queue_.push(std::move(pcb));
 }
 
 void Scheduler::start_batch_generation(const Config& config) {
@@ -381,12 +365,12 @@ void Scheduler::start_batch_generation(const Config& config) {
     while (batch_generating_.load()) {
       cpu_cycles++;
       
-      // Generate a new process every batch_process_freq cycles
+      
       if (cpu_cycles % config.processGenFrequency == 0) {
 
        std::string process_name;
 
-       // Lock the mutex before we start messing with the shared process_counter_
+       
        {
          std::lock_guard<std::mutex> lock(process_counter_mutex_);
 
@@ -396,9 +380,9 @@ void Scheduler::start_batch_generation(const Config& config) {
            ss << "p" << std::setw(2) << std::setfill('0') << process_counter_;
            process_name = ss.str();
          } while (find_process_by_name(process_name) != nullptr);
-       } // The lock is automatically released here
+       } 
 
-        // Generate random instructions based on config
+        
         auto instructions = instruction_generator_.generateRandomProgram(
           config.minInstructions, 
           config.maxInstructions, 
@@ -409,7 +393,7 @@ void Scheduler::start_batch_generation(const Config& config) {
         submit_process(pcb);
       }
       
-      // CPU cycle timing (simplified)
+      
       std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
   });
@@ -482,4 +466,4 @@ void Scheduler::generate_report(const std::string& filename) const {
   std::cout << "Report generated at " << filename << "!" << std::endl;
 }
 
-}  // namespace osemu
+}  
