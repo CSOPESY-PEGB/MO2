@@ -180,8 +180,16 @@ void Scheduler::dispatch(){
 void Scheduler::global_clock(){
   while(running_.load()){
     
+    // Determine how many workers are active. We only need to wait for them.
+    size_t active_workers = 0;
+    for (const auto& worker : cpu_workers_) {
+      if (!worker->is_idle()) {
+        active_workers++;
+      }
+    }
+
     // Wait for all cores to be ready for the next tick
-    while(cores_ready_for_next_tick_.load() < total_cores_ && running_.load()) {
+    while(cores_ready_for_next_tick_.load() < active_workers && running_.load()) {
       std::this_thread::sleep_for(std::chrono::milliseconds(20));
     }
     
@@ -201,9 +209,8 @@ void Scheduler::start(const Config& config) {
   total_cores_ = config.cpuCount;
   delay_per_exec_ = config.delayCyclesPerInstruction;
   quantum_cycles_ = config.quantumCycles;
-  cores_ready_for_next_tick_ = total_cores_;
+  cores_ready_for_next_tick_ = 0;
 
-  global_clock_thread_ = std::thread(&Scheduler::global_clock, this);
 
   for (uint32_t i = 0; i < config.cpuCount; ++i) {
     cpu_workers_.push_back(std::make_unique<CPUWorker>(i, *this));
@@ -212,22 +219,35 @@ void Scheduler::start(const Config& config) {
   std::cout << "Scheduler started with " << config.cpuCount << " cores."
             << std::endl;
 
+  global_clock_thread_ = std::thread(&Scheduler::global_clock, this);
   dispatch_thread_ = std::thread(&Scheduler::dispatch, this);
   
 }
 
 void Scheduler::stop() {
-  running_ = false;
+
+
+  for (auto& worker : cpu_workers_){
+    worker->stop();
+  }
+
   ready_queue_.shutdown();
+  running_ = false;
+
+
+  {
+    std::lock_guard<std::mutex> lock(clock_mutex_);
+    clock_cv_.notify_all();
+  }
+
+ 
+
   
 
   if(dispatch_thread_.joinable()){
     dispatch_thread_.join();
   }
 
-  for (auto& worker : cpu_workers_){
-    worker->stop();
-  }
 
   for (auto& worker : cpu_workers_) {
       worker->join();
