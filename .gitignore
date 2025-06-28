@@ -1,35 +1,57 @@
-# Prerequisites
+# prerequisites
 *.d
 
-# Compiled Object files
+# compiled object files
 *.slo
 *.lo
 *.o
 *.obj
 
-# Precompiled Headers
+# precompiled headers
 *.gch
 *.pch
 
-# Compiled Dynamic libraries
+# compiled dynamic libraries
 *.so
 *.dylib
 *.dll
 
-# Fortran module files
+# fortran module files
 *.mod
 *.smod
 
-# Compiled Static libraries
+# compiled static libraries
 *.lai
 *.la
 *.a
 *.lib
 
-# Executables
+# executables
 *.exe
 *.out
 *.app
 .aider*
 
+# CMake build artifacts
+CMakeCache.txt
+CMakeFiles/
+CMakeScripts/
+cmake_install.cmake
+install_manifest.txt
+
+# Makefiles & generators
+Makefile
+*.make
+
+# out‑of‑source build directory
 build/*
+
+# macOS Finder
+.DS_Store
+
+# IDE settings
+.vscode/
+
+
+#holy shit shut the fuck up
+.idea/

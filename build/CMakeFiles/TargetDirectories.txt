@@ -1,3 +1,1 @@
-/Users/paulivanenclonar/Developer/school/CSOPESY/Week2-OSEmulator/build/CMakeFiles/sim.dir
-/Users/paulivanenclonar/Developer/school/CSOPESY/Week2-OSEmulator/build/CMakeFiles/edit_cache.dir
-/Users/paulivanenclonar/Developer/school/CSOPESY/Week2-OSEmulator/build/CMakeFiles/rebuild_cache.dir
+

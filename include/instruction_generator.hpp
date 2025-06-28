@@ -31,6 +31,6 @@ public:
     std::vector<Expr> generateRandomProgram(size_t min_instructions, size_t max_instructions, const std::string& process_name);
 };
 
-}  // namespace osemu
+}  
 
-#endif  // OSEMU_INSTRUCTION_GENERATOR_H_
+#endif  

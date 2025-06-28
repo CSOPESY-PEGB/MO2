@@ -4,7 +4,7 @@
 #include <sstream>
 
 namespace osemu {
-std::atomic<uint32_t> PCB::next_pid{1}; // initialize the static ctr. happens only once when program starts
+std::atomic<uint32_t> PCB::next_pid{1}; 
 
 PCB::PCB(std::string procName, size_t totalLines)
     : processID(next_pid++),
@@ -25,7 +25,7 @@ PCB::PCB(std::string procName, const std::vector<Expr>& instrs)
       creationTime(std::chrono::system_clock::now()),
       assignedCore(std::nullopt),
       sleepCyclesRemaining(0),
-      instructions(instrs)  // Use copy constructor
+      instructions(instrs)  
 {
   totalInstructions = 0;
   for (const auto& instr : instrs) {
@@ -40,7 +40,7 @@ PCB::PCB(std::string procName, const std::vector<Expr>& instrs)
   }
 }
 
-// Definition for step()
+
 void PCB::step() {
   if (isSleeping()) {
     decrementSleepCycles();
@@ -56,35 +56,35 @@ void PCB::step() {
   }
 }
 
-// Definition for isComplete()
+
 bool PCB::isComplete() const { return currentInstruction >= totalInstructions; }
 
-// Definition for status() - This is the key one you need to implement as per
-// the new requirements
+
+
 std::string PCB::status() const {
-  // Get the creation time as a formatted string
-  auto truncated_creation_time = std::chrono::time_point_cast<std::chrono::seconds>(creationTime); // truncate creation time ms
+  
+  auto truncated_creation_time = std::chrono::time_point_cast<std::chrono::seconds>(creationTime); 
   auto creation_time_str = std::format("{:%m/%d/%Y %I:%M:%S %p}", truncated_creation_time);
 
   std::ostringstream oss;
   oss << "PID:" << processID << " " << processName << " (" << creation_time_str << ")  ";
 
-  // Logic to display different status based on the process state
+  
   if (isComplete()) {
-    // If the process is done, show "Finished" and the final instruction count
+    
     oss << "Finished           " << totalInstructions << " / "
         << totalInstructions;
 
   } else if (assignedCore.has_value()) {
-    // If it's running on a core, show the core number and progress
+    
     oss << "Core: " << *assignedCore << "            " << currentInstruction
         << " / " << totalInstructions;
   } else {
-    // If it's not complete and not on a core, it's in the "Ready" state
-    // You can customize this, but for now, we'll just show progress.
-    // The UI screenshot doesn't show a "Ready" state, only "Running" or
-    // "Finished". This part of the status string is for the "Running processes"
-    // list.
+    
+    
+    
+    
+    
     oss << "Ready (in queue)   " << currentInstruction << " / "
         << totalInstructions;
   }
@@ -100,35 +100,38 @@ bool PCB::executeCurrentInstruction() {
   try {
     const auto& instr = instructions[currentInstruction];
     
-    // Handle SLEEP instruction specially
+    
     if (instr.type == Expr::CALL && instr.var_name == "SLEEP" && instr.atom_value) {
-      uint16_t cycles = 0;
-      if (instr.atom_value->type == Atom::NUMBER) {
-        cycles = instr.atom_value->number_value;
-      } else if (instr.atom_value->type == Atom::NAME) {
-        // Resolve variable - for now assume 0 if undefined
-        cycles = 0;
-      }
+      uint16_t cycles = evaluator.resolve_atom_value(*instr.atom_value);
       setSleepCycles(cycles);
       return true;
     }
     
-    // Handle PRINT instruction with process name
-    if (instr.type == Expr::CALL && instr.var_name == "PRINT" && instr.atom_value) {
-      // Create a modified instruction with default message if needed
-      Expr print_instr = instr;
-      if (instr.atom_value->type == Atom::STRING && instr.atom_value->string_value.empty()) {
-        print_instr.atom_value = std::make_unique<Atom>("Hello world from " + processName + "!", Atom::STRING);
-      }
-      evaluator.handle_print(*print_instr.atom_value, processName);
-      return true;
+    
+    if (instr.type == Expr::CALL && instr.var_name == "PRINT") {
+        if (instr.atom_value) { 
+            Expr print_instr = instr;
+            if (instr.atom_value->type == Atom::STRING && instr.atom_value->string_value.empty()) {
+                print_instr.atom_value = std::make_unique<Atom>("Hello world from " + processName + "!", Atom::STRING);
+            }
+            evaluator.handle_print(*print_instr.atom_value, processName);
+        } else if (instr.lhs && instr.rhs) { 
+            std::string lhs_str = evaluator.print_atom_to_string(*instr.lhs);
+            std::string rhs_str = evaluator.print_atom_to_string(*instr.rhs);
+            Atom temp_atom(lhs_str + rhs_str, Atom::STRING);
+            evaluator.handle_print(temp_atom, processName);
+        } else {
+            
+            evaluator.evaluate(instr);
+        }
+        return true;
     }
     
-    // Execute other instructions normally
+    
     evaluator.evaluate(instr);
     return true;
   } catch (const std::exception& e) {
-    // Log error or handle gracefully
+    
     return false;
   }
 }
@@ -151,4 +154,4 @@ void PCB::decrementSleepCycles() {
   }
 }
 
-}  // namespace osemu
+}  
