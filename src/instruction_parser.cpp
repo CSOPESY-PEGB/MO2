@@ -536,8 +536,9 @@ std::string InstructionEvaluator::handle_print(const Atom& arg, const std::strin
     std::string output = print_atom_to_string(arg);
     // Create log entry with timestamp
     auto now = std::chrono::system_clock::now();
-    std::string timestamp = std::format("{:%m/%d/%Y %I:%M:%S%p}", now);
-    
+    auto truncated_time = std::chrono::time_point_cast<std::chrono::seconds>(now);
+    std::string timestamp = std::format("{:%m/%d/%Y %I:%M:%S %p}", truncated_time);
+
     std::string log_entry;
     if (!process_name.empty()) {
         log_entry = std::format("({}) \"{}\"", timestamp, output);
