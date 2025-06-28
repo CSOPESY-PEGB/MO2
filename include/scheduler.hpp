@@ -10,6 +10,7 @@
 #include "process_control_block.hpp"
 #include "thread_safe_queue.hpp"
 #include "instruction_generator.hpp"
+#include "config.hpp"
 
 namespace osemu {
 
@@ -83,6 +84,7 @@ class Scheduler {
   size_t batch_process_freq_{1};
   size_t delay_per_exec_{0};
   size_t quantum_cycles_{5};
+  SchedulingAlgorithm algorithm_{SchedulingAlgorithm::FCFS};
 
 };
 
