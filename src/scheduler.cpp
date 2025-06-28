@@ -226,6 +226,12 @@ void Scheduler::stop() {
 }
 
 void Scheduler::submit_process(std::shared_ptr<PCB> pcb) {
+
+  { // add to the all process lookup table (not for use for running and ready queue)
+    std::lock_guard<std::mutex> lock(map_mutex_);
+    all_processes_map_[pcb->processName] = pcb;
+  }
+
   ready_queue_.push(std::move(pcb));
 }
 
@@ -263,27 +269,18 @@ void Scheduler::print_status() const {
 
 std::shared_ptr<PCB> Scheduler::find_process_by_name(const std::string& processName) const{
 
-    // find process in running processes
-    {
-        std::lock_guard<std::mutex> lock(running_mutex_);
-        for (const auto& pcb : running_processes_) {
-            if (pcb->processName == processName) {
-                return pcb;
-            }
-        }
-    }
+  std::lock_guard<std::mutex> lock(map_mutex_);
 
-    // if not in running processes, find process in finished processes
-    {
-        std::lock_guard<std::mutex> lock(finished_mutex_);
-        for (const auto& pcb : finished_processes_) {
-            if (pcb->processName == processName) {
-                return pcb;
-            }
-        }
-    }
+  // Use the map's .find() method for an efficient O(1) search.
+  auto it = all_processes_map_.find(processName);
 
-    return nullptr;
+  // Check if the iterator is not at the end, which means the key was found.
+  if (it != all_processes_map_.end()) {
+    // 'it->second' contains the std::shared_ptr<PCB> associated with the name.
+    return it->second;
+  }
+
+  return nullptr;
 }
 void Scheduler::move_to_running(std::shared_ptr<PCB> pcb) {
   std::lock_guard<std::mutex> lock(running_mutex_);
@@ -324,9 +321,21 @@ void Scheduler::start_batch_generation(const Config& config) {
       
       // Generate a new process every batch_process_freq cycles
       if (cpu_cycles % config.processGenFrequency == 0) {
-        ++process_counter_;
-        std::string process_name = "p" + std::string(2 - std::to_string(process_counter_).length(), '0') + std::to_string(process_counter_);
-        
+
+       std::string process_name;
+
+       // Lock the mutex before we start messing with the shared process_counter_
+       {
+         std::lock_guard<std::mutex> lock(process_counter_mutex_);
+
+         do {
+           ++process_counter_;
+           std::stringstream ss;
+           ss << "p" << std::setw(2) << std::setfill('0') << process_counter_;
+           process_name = ss.str();
+         } while (find_process_by_name(process_name) != nullptr);
+       } // The lock is automatically released here
+
         // Generate random instructions based on config
         auto instructions = instruction_generator_.generateRandomProgram(
           config.minInstructions, 

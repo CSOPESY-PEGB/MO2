@@ -6,7 +6,7 @@
 #include <mutex>
 #include <thread>
 #include <vector>
-
+#include <unordered_map>
 #include "process_control_block.hpp"
 #include "thread_safe_queue.hpp"
 #include "instruction_generator.hpp"
@@ -56,6 +56,9 @@ class Scheduler {
   mutable std::mutex running_mutex_;
   mutable std::mutex finished_mutex_;
 
+  mutable std::mutex map_mutex_;
+  std::unordered_map<std::string, std::shared_ptr<PCB>> all_processes_map_;
+
   std::vector<std::shared_ptr<PCB>> running_processes_;
   std::vector<std::shared_ptr<PCB>> finished_processes_;
 
@@ -66,7 +69,7 @@ class Scheduler {
   std::unique_ptr<std::thread> batch_generator_thread_;
   InstructionGenerator instruction_generator_;
   int process_counter_;
-
+  mutable std::mutex process_counter_mutex_;
   //global synchronization
   std::atomic<size_t> ticks_{0}; //global counter.
   mutable std::mutex clock_mutex_; //part 1 of notifying all
