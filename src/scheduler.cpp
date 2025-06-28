@@ -94,11 +94,6 @@ class Scheduler::CPUWorker {
       const auto& logs_before = pcb->getExecutionLogs();
       size_t logs_count_before = logs_before.size();
       
-
-      if(core_id_ == 1){
-        std::cout << "Core " << core_id_ << " executing step for process: " 
-                  << pcb->processName << " at tick: " << last_tick << std::endl;
-      }
       pcb->step();
       
       //Get new logs produced by this step
@@ -183,12 +178,8 @@ void Scheduler::global_clock(){
     
     // Wait for all cores to be ready for the next tick
     while(cores_ready_for_next_tick_.load() < total_cores_ && running_.load()) {
-      std::this_thread::sleep_for(std::chrono::milliseconds(3000));
+      std::this_thread::sleep_for(std::chrono::milliseconds(20));
     }
-
-    //print out the cores ready for next tick and total cores 
-    std::cout << "Cores ready for next tick: " << cores_ready_for_next_tick_.load()
-              << " / " << total_cores_ << "\nticks: " << ticks_.load() << std::endl;
     
     if(!running_.load()) break;
     
