@@ -27,12 +27,24 @@ PCB::PCB(std::string procName, const std::vector<Expr>& instrs)
       sleepCyclesRemaining(0),
       instructions(instrs)  
 {
+  totalInstructions = 0;
+  for (const auto& instr : instrs) {
+    totalInstructions++; // for the instruction itself
+
+    // Add sleep cost if it's a SLEEP instruction
+    if (instr.type == Expr::CALL && instr.var_name == "SLEEP" && instr.atom_value) {
+      if (instr.atom_value->type == Atom::NUMBER) {
+        totalInstructions += instr.atom_value->number_value; // count all sleep ticks
+      }
+    }
+  }
 }
 
 
 void PCB::step() {
   if (isSleeping()) {
     decrementSleepCycles();
+    currentInstruction++; 
     return;
   }
   

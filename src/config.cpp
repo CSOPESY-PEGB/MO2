@@ -48,7 +48,7 @@ Config Config::fromFile(const std::filesystem::path& file) {
       cfg.minInstructions = std::stoul(value);
     } else if (key == "max-ins") {
       cfg.maxInstructions = std::stoul(value);
-    } else if (key == "delay-ins") {
+    } else if (key == "delay-per-exec") {
       cfg.delayCyclesPerInstruction = std::stoul(value);
     }
   }

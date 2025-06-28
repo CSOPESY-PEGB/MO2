@@ -76,30 +76,37 @@ class Scheduler::CPUWorker {
         break;
       }
 
-      {
-        //basically wait for the clock to increment.
-        std::unique_lock<std::mutex> lock(scheduler_.clock_mutex_); 
-        scheduler_.clock_cv_.wait(lock, [&](){
-          return scheduler_.get_ticks() - last_tick >=  scheduler_.delay_per_exec_ && (last_tick != scheduler_.get_ticks()) || shutdown_requested_.load(); 
-        }); //when clock increments, wait until the last tick and get ticks is 0 
-      }
+      scheduler_.cores_ready_for_next_tick_++;
 
+      {
+          std::unique_lock<std::mutex> lock(scheduler_.clock_mutex_); 
+          
+          // Wait for the clock to actually increment from our last observed tick
+          scheduler_.clock_cv_.wait(lock, [&](){
+                return scheduler_.get_ticks() > last_tick || shutdown_requested_.load();
+          });
+      }
       //once unlocked, just check first for shutdown request
       if(shutdown_requested_.load()) break;
       last_tick = scheduler_.get_ticks();
-      // Clear previous logs to get only new output from this step
-      const auto& logs_before = pcb->getExecutionLogs();
-      size_t logs_count_before = logs_before.size();
-      
-      pcb->step();
-      
-      //Get new logs produced by this step
-      //const auto& logs_after = pcb->getExecutionLogs();
-      //for (size_t i = logs_count_before; i < logs_after.size(); ++i) {
-      //   log_file << logs_after[i] << " Core:" << core_id_ << "tick: " << last_tick << std::endl;
-      //}
 
-      steps++; //TODO: REPLACE THIS TO BE WHEN WE ARE PAST OUR TIME QUANTUM, POLISH LOGIC
+
+
+      if(last_tick % (scheduler_.delay_per_exec_ + 1) == 0){
+        // Clear previous logs to get only new output from this step
+        const auto& logs_before = pcb->getExecutionLogs();
+        size_t logs_count_before = logs_before.size();
+        
+        pcb->step();
+        
+        //Get new logs produced by this step
+        // const auto& logs_after = pcb->getExecutionLogs();
+        // for (size_t i = logs_count_before; i < logs_after.size(); ++i) {
+        //   log_file << logs_after[i] << " Core:" << core_id_ << "tick: " << last_tick << std::endl;
+        // }
+
+        steps++; //TODO: REPLACE THIS TO BE WHEN WE ARE PAST OUR TIME QUANTUM, POLISH LOGIC
+      }
     }
 
     if(pcb->isComplete()){
@@ -173,18 +180,29 @@ void Scheduler::dispatch(){
 void Scheduler::global_clock(){
   while(running_.load()){
     
-    //sleep the thread to simulate polling..
-    std::this_thread::sleep_for(std::chrono::milliseconds(20)); //this is linux standard according to chatgippity. honestly just an arbitrary number
-
+    // Wait for all cores to be ready for the next tick
+    while(cores_ready_for_next_tick_.load() < total_cores_ && running_.load()) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+    
+    if(!running_.load()) break;
+    
+    // Reset counter for next cycle
+    cores_ready_for_next_tick_ = 0;
+    
     std::lock_guard<std::mutex> lock(clock_mutex_);
-    clock_cv_.notify_all();//all other processes wait on this tick
-    //wait for all cores to process, 
     ticks_++;
+    clock_cv_.notify_all();
   }
 }
 
 void Scheduler::start(const Config& config) {
   running_ = true;
+  total_cores_ = config.cpuCount;
+  delay_per_exec_ = config.delayCyclesPerInstruction;
+  quantum_cycles_ = config.quantumCycles;
+  cores_ready_for_next_tick_ = total_cores_;
+
   global_clock_thread_ = std::thread(&Scheduler::global_clock, this);
 
   for (uint32_t i = 0; i < config.cpuCount; ++i) {
