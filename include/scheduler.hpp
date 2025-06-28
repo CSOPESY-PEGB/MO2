@@ -47,6 +47,9 @@ class Scheduler {
   void move_to_running(std::shared_ptr<PCB> pcb);
   void move_to_finished(std::shared_ptr<PCB> pcb);
   void move_to_ready(std::shared_ptr<PCB> pcb);
+  
+  std::atomic<int> cores_ready_for_next_tick_{0};
+  int total_cores_{0};
 
   std::atomic<bool> running_;
   std::vector<std::unique_ptr<CPUWorker>> cpu_workers_;

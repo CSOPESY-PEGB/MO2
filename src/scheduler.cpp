@@ -76,25 +76,29 @@ class Scheduler::CPUWorker {
         break;
       }
 
+      scheduler_.cores_ready_for_next_tick_++;
+
       {
           std::unique_lock<std::mutex> lock(scheduler_.clock_mutex_); 
           
           // Wait for the clock to actually increment from our last observed tick
           scheduler_.clock_cv_.wait(lock, [&](){
-              size_t current_tick = scheduler_.get_ticks();
-              return (current_tick > last_tick && 
-                      current_tick - last_tick >= scheduler_.delay_per_exec_) || 
-                    shutdown_requested_.load(); 
+                return scheduler_.get_ticks() > last_tick || shutdown_requested_.load();
           });
       }
-
       //once unlocked, just check first for shutdown request
       if(shutdown_requested_.load()) break;
       last_tick = scheduler_.get_ticks();
+
       // Clear previous logs to get only new output from this step
       const auto& logs_before = pcb->getExecutionLogs();
       size_t logs_count_before = logs_before.size();
       
+
+      if(core_id_ == 1){
+        std::cout << "Core " << core_id_ << " executing step for process: " 
+                  << pcb->processName << " at tick: " << last_tick << std::endl;
+      }
       pcb->step();
       
       //Get new logs produced by this step
@@ -102,11 +106,6 @@ class Scheduler::CPUWorker {
       // for (size_t i = logs_count_before; i < logs_after.size(); ++i) {
       //   log_file << logs_after[i] << " Core:" << core_id_ << "tick: " << last_tick << std::endl;
       // }
-
-      std::cout << "Core " << core_id_ << " executing process " << pcb->processName
-            << " at tick: " << last_tick << std::endl;
-
-
 
       steps++; //TODO: REPLACE THIS TO BE WHEN WE ARE PAST OUR TIME QUANTUM, POLISH LOGIC
     }
@@ -182,18 +181,31 @@ void Scheduler::dispatch(){
 void Scheduler::global_clock(){
   while(running_.load()){
     
-    //sleep the thread to simulate polling..
-    std::this_thread::sleep_for(std::chrono::milliseconds(200)); //this is linux standard according to chatgippity. honestly just an arbitrary number
+    // Wait for all cores to be ready for the next tick
+    while(cores_ready_for_next_tick_.load() < total_cores_ && running_.load()) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(3000));
+    }
 
+    //print out the cores ready for next tick and total cores 
+    std::cout << "Cores ready for next tick: " << cores_ready_for_next_tick_.load()
+              << " / " << total_cores_ << "\nticks: " << ticks_.load() << std::endl;
+    
+    if(!running_.load()) break;
+    
+    // Reset counter for next cycle
+    cores_ready_for_next_tick_ = 0;
+    
     std::lock_guard<std::mutex> lock(clock_mutex_);
-    clock_cv_.notify_all();//all other processes wait on this tick
-    //wait for all cores to process, 
     ticks_++;
+    clock_cv_.notify_all();
   }
 }
 
 void Scheduler::start(const Config& config) {
   running_ = true;
+  total_cores_ = config.cpuCount;
+  cores_ready_for_next_tick_ = total_cores_;
+
   global_clock_thread_ = std::thread(&Scheduler::global_clock, this);
 
   for (uint32_t i = 0; i < config.cpuCount; ++i) {
