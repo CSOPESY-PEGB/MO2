@@ -99,14 +99,14 @@ class Scheduler::CPUWorker {
         
         pcb->step();
 
-        if(core_id_ == 0) {
-          // Print the process status to the console
-          std::cout << "Core: " << core_id_ << " Tick: " << last_tick
-                  << " Process: " << pcb->processName
-                  << " Steps: " << steps
-                  << " Time Quantum: " << tq << std::endl;
-        } 
-        
+        // if(core_id_ == 0) {
+        //   // Print the process status to the console
+        //   std::cout << "Core: " << core_id_ << " Tick: " << last_tick
+        //           << " Process: " << pcb->processName
+        //           << " Steps: " << steps
+        //           << " Time Quantum: " << tq << std::endl;
+        // }
+        //
         
         //Get new logs produced by this step
         // const auto& logs_after = pcb->getExecutionLogs();
@@ -356,7 +356,14 @@ void Scheduler::move_to_finished(std::shared_ptr<PCB> pcb) {
 }
 
 void Scheduler::move_to_ready(std::shared_ptr<PCB> pcb){
+
   {
+    {
+      std::lock_guard<std::mutex> lock(running_mutex_);
+      std::erase_if(running_processes_, [&](const auto& p) {
+            return p.get() == pcb.get();
+      });
+    }
     ready_queue_.push(std::move(pcb));
   }
 }
