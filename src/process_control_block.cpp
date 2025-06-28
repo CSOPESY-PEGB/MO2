@@ -51,7 +51,8 @@ bool PCB::isComplete() const { return currentInstruction >= totalInstructions; }
 // the new requirements
 std::string PCB::status() const {
   // Get the creation time as a formatted string
-  auto creation_time_str = std::format("{:%m/%d/%Y %I:%M:%S%p}", creationTime);
+  auto truncated_creation_time = std::chrono::time_point_cast<std::chrono::seconds>(creationTime); // truncate creation time ms
+  auto creation_time_str = std::format("{:%m/%d/%Y %I:%M:%S %p}", truncated_creation_time);
 
   std::ostringstream oss;
   oss << "PID:" << processID << " " << processName << " (" << creation_time_str << ")  ";
