@@ -30,17 +30,17 @@ class Scheduler {
   void submit_process(std::shared_ptr<PCB> pcb);
   void print_status() const;
 
-  // Process generation
+  
   void start_batch_generation(const Config& config);
   void stop_batch_generation();
   void calculate_cpu_utilization(size_t& total_cores, size_t& cores_used,
                                  double& cpu_utilization) const;
   bool is_generating() const { return batch_generating_; }
   std::shared_ptr<PCB> find_process_by_name(const std::string& name) const;
-  // Report utilities
+  
   void generate_report(const std::string& filename = "csopesy-log.txt") const;
 
-  size_t get_ticks(){ return ticks_.load(); } //getter for ticks
+  size_t get_ticks(){ return ticks_.load(); } 
 
  private:
   friend class CPUWorker;
@@ -68,19 +68,19 @@ class Scheduler {
 
   std::thread dispatch_thread_;
 
-  // Batch process generation
+  
   std::atomic<bool> batch_generating_;
   std::unique_ptr<std::thread> batch_generator_thread_;
   InstructionGenerator instruction_generator_;
   int process_counter_;
   mutable std::mutex process_counter_mutex_;
-  //global synchronization
-  std::atomic<size_t> ticks_{0}; //global counter.
-  mutable std::mutex clock_mutex_; //part 1 of notifying all
-  std::condition_variable clock_cv_; //part 2 of notifying all
+  
+  std::atomic<size_t> ticks_{0}; 
+  mutable std::mutex clock_mutex_; 
+  std::condition_variable clock_cv_; 
   std::thread global_clock_thread_;
 
-  //config stuff
+  
   size_t batch_process_freq_{1};
   size_t delay_per_exec_{0};
   size_t quantum_cycles_{5};
@@ -88,6 +88,6 @@ class Scheduler {
 
 };
 
-}  // namespace osemu
+}  
 
-#endif  // OSEMU_SCHEDULER_H_
+#endif  

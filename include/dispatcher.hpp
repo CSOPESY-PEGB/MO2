@@ -14,6 +14,6 @@ class Scheduler;
 void dispatch(Commands cmd, std::vector<std::string>& args, Config& cfg,
               Scheduler& scheduler);
 
-}  // namespace osemu
+}  
 
-#endif  // OSEMU_DISPATCHER_H_
+#endif  

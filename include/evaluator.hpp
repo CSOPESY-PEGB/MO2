@@ -19,6 +19,6 @@ private:
     std::vector<std::string> output_log_;
 };
 
-} // namespace osemu
+} 
 
-#endif // OSEMU_EVALUATOR_H_
+#endif 

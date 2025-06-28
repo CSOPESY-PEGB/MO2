@@ -26,6 +26,6 @@ struct Config {
   static Config fromFile(const std::filesystem::path& file);
 };
 
-}  // namespace osemu
+}
 
-#endif  // OSEMU_CONFIG_H_
+#endif

@@ -21,11 +21,11 @@ class PCB : public std::enable_shared_from_this<PCB> {
   bool isComplete() const;
   std::string status() const;
   
-  // Instruction execution
+  
   bool executeCurrentInstruction();
   const std::vector<std::string>& getExecutionLogs() const;
   
-  // Sleep handling
+  
   void setSleepCycles(uint16_t cycles);
   bool isSleeping() const;
   void decrementSleepCycles();
@@ -36,16 +36,16 @@ class PCB : public std::enable_shared_from_this<PCB> {
   size_t totalInstructions;
   std::chrono::system_clock::time_point creationTime;
 
-  // State tracking
+  
   std::optional<int> assignedCore;
   std::chrono::system_clock::time_point finishTime;
   
-  // Instruction execution state
+  
   std::vector<Expr> instructions;
   InstructionEvaluator evaluator;
   uint16_t sleepCyclesRemaining;
 };
 
-}  // namespace osemu
+}  
 
-#endif  // OSEMU_PROCESS_CONTROL_BLOCK_H_
+#endif  

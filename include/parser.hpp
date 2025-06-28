@@ -8,6 +8,6 @@ namespace osemu {
 
 std::vector<std::string> ParseTokens(const std::string& line);
 
-}  // namespace osemu
+}  
 
-#endif  // OSEMU_PARSER_H_
+#endif  

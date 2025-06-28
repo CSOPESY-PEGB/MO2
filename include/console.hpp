@@ -5,6 +5,6 @@ namespace osemu {
 
 void console_prompt();
 
-}  // namespace osemu
+}
 
-#endif  // OSEMU_CONSOLE_H_
+#endif 

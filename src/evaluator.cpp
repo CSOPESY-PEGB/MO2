@@ -6,7 +6,6 @@
 namespace osemu {
 
 void Evaluator::evaluate(const Expr& expr) {
-    // Implementation of instruction evaluation will go here
 }
 
 void Evaluator::handle_print(const Atom& atom, const std::string& processName) {
@@ -33,4 +32,4 @@ const std::vector<std::string>& Evaluator::get_output_log() const {
     return output_log_;
 }
 
-} // namespace osemu
+}

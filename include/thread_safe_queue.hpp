@@ -30,7 +30,7 @@ class ThreadSafeQueue {
       return false;
     }
 
-    // We can safely pop the front element.
+    
     value = std::move(queue_.front());
     queue_.pop();
     return true;

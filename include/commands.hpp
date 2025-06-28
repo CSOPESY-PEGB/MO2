@@ -18,6 +18,6 @@ enum class Commands {
 
 Commands from_str(std::string_view cmd);
 
-}  // namespace osemu
+}
 
-#endif  // OSEMU_COMMANDS_H_
+#endif

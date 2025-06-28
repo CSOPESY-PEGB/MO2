@@ -12,6 +12,6 @@ class Scheduler;
 
 void screen(std::vector<std::string>& args, Scheduler& scheduler, Config& config);
 
-}  // namespace osemu
+}  
 
-#endif  // OSEMU_SCREEN_H_
+#endif  
