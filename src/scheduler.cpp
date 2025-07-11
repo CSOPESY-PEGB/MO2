@@ -184,7 +184,7 @@ void Scheduler::dispatch(){
 
 void Scheduler::global_clock(){
   while(running_.load()){
-    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    std::this_thread::sleep_for(std::chrono::milliseconds(5));
     
     if(!running_.load()) break;
     
