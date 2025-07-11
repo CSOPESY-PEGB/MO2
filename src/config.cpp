@@ -50,6 +50,14 @@ Config Config::fromFile(const std::filesystem::path& file) {
       cfg.maxInstructions = std::stoul(value);
     } else if (key == "delay-per-exec") {
       cfg.delayCyclesPerInstruction = std::stoul(value);
+    } else if (key == "max-overall-mem"){
+      cfg.max_overall_mem = std::stoul(value);
+    } else if (key == "mem-per-frame"){
+      cfg.mem_per_frame = std::stoul(value);
+    } else if (key == "min-mem-per-proc"){
+      cfg.min_mem_per_proc = std::stoul(value);
+    } else if (key == "max-mem-per-proc"){
+      cfg.max_mem_per_proc = std::stoul(value);
     }
   }
   return cfg;

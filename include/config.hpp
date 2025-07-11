@@ -17,6 +17,11 @@ struct Config {
   uint32_t maxInstructions{2000};
   uint32_t delayCyclesPerInstruction{0};
 
+  uint32_t max_overall_mem{16384};
+  uint32_t mem_per_frame{16};
+  uint32_t min_mem_per_proc{4096};
+  uint32_t max_mem_per_proc{4096};
+
   explicit Config(uint32_t cpu = 4,
                   SchedulingAlgorithm sched = SchedulingAlgorithm::RoundRobin,
                   uint32_t quantum = 5, uint32_t freq = 1,
