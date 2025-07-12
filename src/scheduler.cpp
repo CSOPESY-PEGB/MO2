@@ -32,6 +32,7 @@ class Scheduler::CPUWorker {
       time_quantum_ = time_quantum;
       idle_ = false;
       step = 0; // Reset step counter when a new task is assigned
+      delay_counter_ = 0; // Reset delay counter when a new task is assigned
     };
 
 
@@ -40,7 +41,14 @@ class Scheduler::CPUWorker {
       pcb->assignedCore = core_id_;
       scheduler_.move_to_running(pcb);
 
-      if(!scheduler_.running_.load() || shutdown_requested_.load()){
+      if (delay_counter_ < scheduler_.delay_per_exec_) {
+        // If delay cycles are not yet completed, increment the delay counter
+        delay_counter_++;
+      
+      } else {
+        // If delay cycles are completed, reset the delay counter
+        delay_counter_ = 0;
+        if(!scheduler_.running_.load() || shutdown_requested_.load()){
         return; // If the scheduler is not running or shutdown is requested, exit
       } else {
         // Execute a step and then check if the process is complete
@@ -61,6 +69,7 @@ class Scheduler::CPUWorker {
           step++;
         }
       }
+      }
     }
 
     // func is_idle: check if the worker is idle by checking if it has a process
@@ -73,6 +82,7 @@ class Scheduler::CPUWorker {
       std::atomic_bool shutdown_requested_{false};
       mutable std::mutex mutex_;
       int step = 0; // Counter for the number of steps executed
+      int delay_counter_ = 0; // Counter for delay cycles
 };
 
 Scheduler::Scheduler() : running_(false), batch_generating_(false), process_counter_(0) {}
