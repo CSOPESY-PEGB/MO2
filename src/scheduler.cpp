@@ -23,6 +23,7 @@ class Scheduler::CPUWorker {
 
     
     std::shared_ptr<PCB> current_task_;
+    int core_id_;
 
     // func assign: assign process to worker with time quantum; if FCFS time quantum is process length, if RoundRobin time quantum is quantum_cycles_
     void assign_task(std::shared_ptr<PCB> pcb, int time_quantum){
@@ -66,7 +67,6 @@ class Scheduler::CPUWorker {
     bool is_idle() const { return idle_; };
 
     private:
-      int core_id_;
       Scheduler& scheduler_;
       int time_quantum_{0};
       bool idle_{true};
@@ -90,26 +90,23 @@ void Scheduler::dispatch(){
   // EDIT Dispatch function tomorrow
   std::vector<std::unique_ptr<CPUWorker>> cpu_workers_;
   int idle_cores = 0;
-  size_t ticks = 0;
+
+  for (int i = 0; i < core_count_; ++i) {
+    cpu_workers_.emplace_back(std::make_unique<CPUWorker>(i, *this));
+  }
 
   while(running_.load()){
-    if ((ticks - 1 ) % delay_per_exec_ == 0) {
       std::shared_ptr<PCB> process;
       // check if a CPU is idle and if so, assign a process to it
       // asign first and then step on cycle for the cpu
       // remove all mutex
       
       // Check if the number of CPU workers matches the core count and create new workers if necessary
-      if (cpu_workers_.size() != core_count_) {
-        cpu_workers_.clear();
-        for (int i = 0; i < core_count_; ++i) {
-          cpu_workers_.emplace_back(std::make_unique<CPUWorker>(i, *this));
-        }
-      }
 
       // loop through workers and assign processes if they are idle
       idle_cores = 0;
       for (const auto& worker : cpu_workers_) {
+        // cpu workers size
         if (worker->is_idle()) {
           idle_cores++;
           if (ready_queue_.wait_and_pop(process)) {
@@ -117,8 +114,6 @@ void Scheduler::dispatch(){
             int time_quantum = (algorithm_ == SchedulingAlgorithm::RoundRobin) ? quantum_cycles_ : process->totalInstructions;
             worker->assign_task(process, time_quantum);
             idle_cores--; // Decrease idle cores count since we assigned a process
-          } else {
-            break; // Exit if no process is available
           }
         }
       }
@@ -133,9 +128,6 @@ void Scheduler::dispatch(){
       // update the number of active cores
       active_cores_ = core_count_ - idle_cores;
     }
-    ticks++;
-    // restart ticks if its greater than 1000000
-  }
 }
 
 void Scheduler::start(const Config& config) {
