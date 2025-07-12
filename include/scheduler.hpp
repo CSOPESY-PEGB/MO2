@@ -79,11 +79,15 @@ class Scheduler {
   mutable std::mutex clock_mutex_; 
   std::condition_variable clock_cv_; 
   std::thread global_clock_thread_;
+  
 
   
   size_t batch_process_freq_{1};
   size_t delay_per_exec_{0};
   size_t quantum_cycles_{5};
+  size_t core_count_{0};
+  size_t active_cores_{0};
+
   SchedulingAlgorithm algorithm_{SchedulingAlgorithm::FCFS};
 
 };
