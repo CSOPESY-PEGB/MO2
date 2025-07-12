@@ -29,7 +29,7 @@ class Scheduler::CPUWorker {
     void assign_task(std::shared_ptr<PCB> pcb, int time_quantum){
       std::lock_guard<std::mutex> lock(mutex_);
       scheduler_.move_to_running(pcb);
-      current_task_ = std::move(pcb);
+      current_task_ = pcb;
       time_quantum_ = time_quantum;
       idle_ = false;
       step = 0; // Reset step counter when a new task is assigned
