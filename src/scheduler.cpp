@@ -90,46 +90,51 @@ void Scheduler::dispatch(){
   // EDIT Dispatch function tomorrow
   std::vector<std::unique_ptr<CPUWorker>> cpu_workers_;
   int idle_cores = 0;
+  size_t ticks = 0;
 
   while(running_.load()){
-    std::shared_ptr<PCB> process;
-    // check if a CPU is idle and if so, assign a process to it
-    // asign first and then step on cycle for the cpu
-    // remove all mutex
-    
-    // Check if the number of CPU workers matches the core count and create new workers if necessary
-    if (cpu_workers_.size() != core_count_) {
-      cpu_workers_.clear();
-      for (int i = 0; i < core_count_; ++i) {
-        cpu_workers_.emplace_back(std::make_unique<CPUWorker>(i, *this));
-      }
-    }
-
-    // loop through workers and assign processes if they are idle
-    idle_cores = 0;
-    for (const auto& worker : cpu_workers_) {
-      if (worker->is_idle()) {
-        idle_cores++;
-        if (ready_queue_.wait_and_pop(process)) {
-          int time_quantum = (algorithm_ == SchedulingAlgorithm::RoundRobin) ? quantum_cycles_ : process->totalInstructions;
-          worker->assign_task(process, time_quantum);
-          idle_cores--; // Decrease idle cores count since we assigned a process
-        } else {
-          break; // Exit if no process is available
+    if ((ticks - 1 ) % delay_per_exec_ == 0) {
+      std::shared_ptr<PCB> process;
+      // check if a CPU is idle and if so, assign a process to it
+      // asign first and then step on cycle for the cpu
+      // remove all mutex
+      
+      // Check if the number of CPU workers matches the core count and create new workers if necessary
+      if (cpu_workers_.size() != core_count_) {
+        cpu_workers_.clear();
+        for (int i = 0; i < core_count_; ++i) {
+          cpu_workers_.emplace_back(std::make_unique<CPUWorker>(i, *this));
         }
       }
-    }
 
-    // Step through each worker to execute 1 step of the assigned process
-    for (const auto& worker : cpu_workers_) {
-      if (!worker->is_idle()) {
-        worker->execute_process(worker->current_task_);
+      // loop through workers and assign processes if they are idle
+      idle_cores = 0;
+      for (const auto& worker : cpu_workers_) {
+        if (worker->is_idle()) {
+          idle_cores++;
+          if (ready_queue_.wait_and_pop(process)) {
+            // time_quantum is the quantum_cycles_ for RoundRobin, or the total instructions for FCFS
+            int time_quantum = (algorithm_ == SchedulingAlgorithm::RoundRobin) ? quantum_cycles_ : process->totalInstructions;
+            worker->assign_task(process, time_quantum);
+            idle_cores--; // Decrease idle cores count since we assigned a process
+          } else {
+            break; // Exit if no process is available
+          }
+        }
       }
+
+      // Step through each worker to execute 1 step of the assigned process
+      for (const auto& worker : cpu_workers_) {
+        if (!worker->is_idle()) {
+          worker->execute_process(worker->current_task_);
+        }
+      }
+
+      // update the number of active cores
+      active_cores_ = core_count_ - idle_cores;
     }
-
-    // update the number of active cores
-    active_cores_ = core_count_ - idle_cores;
-
+    ticks++;
+    // restart ticks if its greater than 1000000
   }
 }
 
