@@ -316,8 +316,8 @@ void Scheduler::generate_report(const std::string& filename) const {
     return;
   }
 
-  size_t total_cores;
-  size_t cores_used;
+  size_t total_cores = core_count_;
+  size_t cores_used = active_cores_;
   double cpu_utilization;
   calculate_cpu_utilization(total_cores, cores_used, cpu_utilization);
 
