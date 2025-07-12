@@ -28,6 +28,7 @@ class Scheduler::CPUWorker {
     // func assign: assign process to worker with time quantum; if FCFS time quantum is process length, if RoundRobin time quantum is quantum_cycles_
     void assign_task(std::shared_ptr<PCB> pcb, int time_quantum){
       std::lock_guard<std::mutex> lock(mutex_);
+      scheduler_.move_to_running(pcb);
       current_task_ = std::move(pcb);
       time_quantum_ = time_quantum;
       idle_ = false;
@@ -39,36 +40,34 @@ class Scheduler::CPUWorker {
     // func execute 1 step: execute one step and then check if the process is complete and then move it to finished or ready queue and then is_idle is false
     void execute_process(std::shared_ptr<PCB> pcb) {
       pcb->assignedCore = core_id_;
-      scheduler_.move_to_running(pcb);
 
       if (delay_counter_ < scheduler_.delay_per_exec_) {
         // If delay cycles are not yet completed, increment the delay counter
         delay_counter_++;
-      
       } else {
         // If delay cycles are completed, reset the delay counter
         delay_counter_ = 0;
         if(!scheduler_.running_.load() || shutdown_requested_.load()){
         return; // If the scheduler is not running or shutdown is requested, exit
-      } else {
-        // Execute a step and then check if the process is complete
-        pcb->step();
-
-        if (pcb->isComplete()) {
-          pcb->finishTime = std::chrono::system_clock::now();
-          scheduler_.move_to_finished(pcb);
-          idle_ = true; // Mark worker as idle if process is complete
-          current_task_.reset(); // Clear the current task
-        } else if(step >= time_quantum_) {
-          // If the process has executed for the quantum time, move it to ready queue
-          scheduler_.move_to_ready(pcb);
-          idle_ = true; // Mark worker as idle after moving to ready queue
-          current_task_.reset(); // Clear the current task
         } else {
-          // If the process is not complete and still within quantum, continue executing
-          step++;
+          // Execute a step and then check if the process is complete
+          pcb->step();
+
+          if (pcb->isComplete()) {
+            pcb->finishTime = std::chrono::system_clock::now();
+            scheduler_.move_to_finished(pcb);
+            idle_ = true; // Mark worker as idle if process is complete
+            current_task_.reset(); // Clear the current task
+          } else if(step >= time_quantum_) {
+            // If the process has executed for the quantum time, move it to ready queue
+            scheduler_.move_to_ready(pcb);
+            idle_ = true; // Mark worker as idle after moving to ready queue
+            current_task_.reset(); // Clear the current task
+          } else {
+            // If the process is not complete and still within quantum, continue executing
+            step++;
+          }
         }
-      }
       }
     }
 
@@ -135,8 +134,11 @@ void Scheduler::dispatch(){
         }
       }
 
-      // update the number of active cores
+      // update the number of active corsces
       active_cores_ = core_count_ - idle_cores;
+
+      //sleep for a short duration to simulate time passing
+      std::this_thread::sleep_for(std::chrono::milliseconds(20));
     }
 }
 
