@@ -279,12 +279,6 @@ void Scheduler::start_batch_generation(const Config& config) {
          } while (find_process_by_name(process_name) != nullptr);
        } 
 
-        auto instructions = instruction_generator_.generateRandomProgram(
-          config.minInstructions, 
-          config.maxInstructions, 
-          process_name
-        );
-
         // Memory size for each process in bytes
 
         // Generate a random memory size for the process
@@ -292,7 +286,14 @@ void Scheduler::start_batch_generation(const Config& config) {
         std::mt19937 gen(rd());                        // Mersenne Twister engine
         std::uniform_int_distribution<> dist(minMemPerProc, maxMemPerProc); // Distribution for memory size
 
-        int memory_size = dist(gen);
+        size_t memory_size = dist(gen);
+       
+        auto instructions = instruction_generator_.generateRandomProgram(
+          config.minInstructions, 
+          config.maxInstructions, 
+          process_name,
+          memory_size
+        );
        
         // Check if the process can fit in the memory size allocated
         if (instructions.size() + 64 > memory_size) {
