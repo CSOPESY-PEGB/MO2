@@ -32,7 +32,7 @@ struct Atom {
 };
 
 struct Expr {
-    enum Type { DECLARE, CALL, CONSTANT, VOID_EXPR, ADD, SUB, FOR };
+    enum Type { DECLARE, CALL, CONSTANT, VOID_EXPR, ADD, SUB, FOR, READ, WRITE };
     Type type;
     
     std::string var_name;
@@ -159,6 +159,22 @@ struct Expr {
         e.atom_value = std::move(value);
         return e;
     }
+
+    // Static methods for READ and WRITE operations
+    static Expr make_read(std::string var_name, std::unique_ptr<Atom> address) {
+    Expr e(READ);
+    e.var_name = std::move(var_name);   // destination variable
+    e.atom_value = std::move(address);  // memory address to read from
+    return e;
+    }   
+
+    static Expr make_write(std::unique_ptr<Atom> address, std::unique_ptr<Atom> value) {
+        Expr e(WRITE);
+        e.lhs = std::move(address);  // memory address
+        e.rhs = std::move(value);    // value to write
+        return e;
+    }
+    
 };
 
 struct ParseResult {

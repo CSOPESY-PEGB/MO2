@@ -104,6 +104,11 @@ std::vector<Expr> InstructionGenerator::generateInstructions(size_t count, const
             auto lhs = std::make_unique<Atom>("Value from: ", Atom::STRING);
             auto rhs = std::make_unique<Atom>("x", Atom::NAME);
             instructions.push_back(Expr::make_call_concat("PRINT", std::move(lhs), std::move(rhs)));
+        } else if (i % 3 == 0) {
+            // Generate random READ and WRITE instructions here
+            auto address = std::make_unique<Atom>(0);
+            auto value = std::make_unique<Atom>(value_dist(rng));
+            instructions.push_back(Expr::make_read("x", std::move(address))); // READ
         } else {
             uint16_t add_val = add_value_dist(rng);
             auto lhs = std::make_unique<Atom>("x", Atom::NAME);
@@ -116,7 +121,7 @@ std::vector<Expr> InstructionGenerator::generateInstructions(size_t count, const
 }
 
 std::vector<Expr> InstructionGenerator::generateRandomProgram(size_t min_instructions, size_t max_instructions, const std::string& process_name) {
-    std::uniform_int_distribution<size_t> count_dist(min_instructions, max_instructions);
+    std::uniform_int_distribution<size_t> count_dist(min_instructions, max_instructions);   
     size_t instruction_count = count_dist(rng);
     
     return generateInstructions(instruction_count, process_name);
