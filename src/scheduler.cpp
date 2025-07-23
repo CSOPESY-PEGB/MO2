@@ -148,6 +148,12 @@ void Scheduler::start(const Config& config) {
   quantum_cycles_ = config.quantumCycles;
   algorithm_ = config.scheduler;
   core_count_ = config.cpuCount;
+  maxOverallMemory = config.maxOverallMemory;
+  memPerFrame = config.memPerFrame;
+  minMemPerProc = config.minMemPerProc;
+  maxMemPerProc = config.maxMemPerProc;
+
+
 
   std::cout << "Scheduler started with " << config.cpuCount << " cores."
             << std::endl;
@@ -280,17 +286,14 @@ void Scheduler::start_batch_generation(const Config& config) {
         );
 
         // Memory size for each process in bytes
-        size_t min_mem_per_process = 512;
-        size_t max_mem_per_process = 1024;
 
         // Generate a random memory size for the process
         std::random_device rd;                         // Seed source
         std::mt19937 gen(rd());                        // Mersenne Twister engine
-        std::uniform_int_distribution<> dist(min_mem_per_process,  max_mem_per_process);
+        std::uniform_int_distribution<> dist(minMemPerProc, maxMemPerProc); // Distribution for memory size
 
         int memory_size = dist(gen);
-
-
+       
         // Check if the process can fit in the memory size allocated
         if (instructions.size() + 64 > memory_size) {
           std::cerr << "Error: Process " << process_name

@@ -108,6 +108,7 @@ bool PCB::executeCurrentInstruction() {
       else if (instr.atom_value->number_value >= heap_memory.size()) {
         throw std::runtime_error("Heap address out of bounds");
         return true;
+        // violation error and then shut down the process
       } else {
         // check if logic is good
         symbol_table[instr.var_name] = heap_memory[instr.atom_value->number_value];
@@ -123,6 +124,7 @@ bool PCB::executeCurrentInstruction() {
       if (instr.lhs->number_value >= heap_memory.size()) {
         throw std::runtime_error("Heap address out of bounds");
         return true;
+        // violation error and then shut down the process
       }
       // check if logic is good
       heap_memory[instr.lhs->number_value] = instr.rhs->number_value;
