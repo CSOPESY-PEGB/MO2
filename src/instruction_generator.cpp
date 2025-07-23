@@ -19,6 +19,17 @@ std::string InstructionGenerator::generateVariableName() {
     return std::string(1, var_char);
 }
 
+size_t InstructionGenerator::generateAddress(size_t memory_size) {
+    std::random_device rd;                         // Seed source
+    std::mt19937 gen(rd());                        // Mersenne Twister engine
+    std::uniform_int_distribution<> dist(0, memory_size); // Distribution for memory size
+
+    size_t address = dist(gen);
+
+    return address;
+}
+
+
 Expr InstructionGenerator::generatePrintInstruction(const std::string& process_name) {
     
     std::string message = "Hello world from " + process_name + "!";
@@ -95,9 +106,11 @@ Expr InstructionGenerator::generateForInstruction(int max_depth) {
     return Expr::make_for(std::move(body), std::move(count_atom));
 }
 
-std::vector<Expr> InstructionGenerator::generateInstructions(size_t count, const std::string& process_name) {
+std::vector<Expr> InstructionGenerator::generateInstructions(size_t count, const std::string& process_name, size_t memory_size) {
     std::vector<Expr> instructions;
     instructions.reserve(count);
+    size_t max_address = memory_size - count - 64;
+    size_t total_variables = 0;
     
     for (size_t i = 0; i < count; i++) {
         if (i % 2 == 0) {
@@ -105,10 +118,21 @@ std::vector<Expr> InstructionGenerator::generateInstructions(size_t count, const
             auto rhs = std::make_unique<Atom>("x", Atom::NAME);
             instructions.push_back(Expr::make_call_concat("PRINT", std::move(lhs), std::move(rhs)));
         } else if (i % 3 == 0) {
-            // Generate random READ and WRITE instructions here
-            auto address = std::make_unique<Atom>(0);
-            auto value = std::make_unique<Atom>(value_dist(rng));
-            instructions.push_back(Expr::make_read("x", std::move(address))); // READ
+            // Generate random READ address and variable
+            if(total_variables >= 32){
+                total_variables = 0;
+            }
+            auto address = std::make_unique<Atom>(generateAddress(max_address));
+            std::string var_name = "x" + std::to_string(total_variables++);
+            
+            total_variables++;
+            instructions.push_back(Expr::make_read(var_name, std::move(address))); // READ
+        } else if (i % 5 == 0) {
+            // Generate random Write address and variable
+            auto address = std::make_unique<Atom>(generateAddress(max_address));
+            uint16_t value = value_dist(rng);
+
+            instructions.push_back(Expr::make_write(std::move(address), std::make_unique<Atom>(value))); // WRITE
         } else {
             uint16_t add_val = add_value_dist(rng);
             auto lhs = std::make_unique<Atom>("x", Atom::NAME);
@@ -120,11 +144,11 @@ std::vector<Expr> InstructionGenerator::generateInstructions(size_t count, const
     return instructions;
 }
 
-std::vector<Expr> InstructionGenerator::generateRandomProgram(size_t min_instructions, size_t max_instructions, const std::string& process_name) {
+std::vector<Expr> InstructionGenerator::generateRandomProgram(size_t min_instructions, size_t max_instructions, const std::string& process_name, size_t memory_size) {
     std::uniform_int_distribution<size_t> count_dist(min_instructions, max_instructions);   
     size_t instruction_count = count_dist(rng);
     
-    return generateInstructions(instruction_count, process_name);
+    return generateInstructions(instruction_count, process_name, memory_size);
 }
 
 }  

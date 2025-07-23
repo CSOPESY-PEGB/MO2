@@ -106,7 +106,8 @@ bool create_process(const std::string& process_name, Scheduler& scheduler, Confi
 
   InstructionGenerator generator;
 
-  auto instructions = generator.generateRandomProgram(config.minInstructions, config.maxInstructions, process_name);
+  // TODO: Update this to actual memory size
+  auto instructions = generator.generateRandomProgram(config.minInstructions, config.maxInstructions, process_name, 512);
   auto pcb = std::make_shared<PCB>(process_name, instructions);
   
   std::cout << "Created process '" << process_name << "' with " 
