@@ -278,9 +278,28 @@ void Scheduler::start_batch_generation(const Config& config) {
           config.maxInstructions, 
           process_name
         );
-        
-        auto pcb = std::make_shared<PCB>(process_name, instructions);
-        submit_process(pcb);
+
+        // Memory size for each process in bytes
+        size_t min_mem_per_process = 512;
+        size_t max_mem_per_process = 1024;
+
+        // Generate a random memory size for the process
+        std::random_device rd;                         // Seed source
+        std::mt19937 gen(rd());                        // Mersenne Twister engine
+        std::uniform_int_distribution<> dist(min_mem_per_process,  max_mem_per_process);
+
+        int memory_size = dist(gen);
+
+
+        // Check if the process can fit in the memory size allocated
+        if (instructions.size() + 64 > memory_size) {
+          std::cerr << "Error: Process " << process_name
+                    << " has too many instructions for the allocated memory size."
+                    << std::endl;  
+        } else {
+          auto pcb = std::make_shared<PCB>(process_name, instructions, memory_size);
+          submit_process(pcb);
+        }
       }
       
       std::this_thread::sleep_for(std::chrono::milliseconds(100));

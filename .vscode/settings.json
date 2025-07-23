@@ -75,6 +75,10 @@
         "locale": "cpp",
         "print": "cpp",
         "queue": "cpp",
-        "stack": "cpp"
+        "stack": "cpp",
+        "__config": "cpp",
+        "map": "cpp",
+        "__tree": "cpp",
+        "complex": "cpp"
     }
 }
