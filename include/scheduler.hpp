@@ -87,6 +87,11 @@ class Scheduler {
   size_t quantum_cycles_{5};
   size_t core_count_{0};
   size_t active_cores_{0};
+  
+  size_t maxOverallMemory{1024};
+  size_t memPerFrame{64};
+  size_t minMemPerProc{512};
+  size_t maxMemPerProc{1024};
 
   SchedulingAlgorithm algorithm_{SchedulingAlgorithm::FCFS};
 
