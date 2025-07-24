@@ -97,7 +97,7 @@ void view_process_screen(const std::string& process_name, Scheduler& scheduler) 
 
 
 
-bool create_process(const std::string& process_name, Scheduler& scheduler, Config& config) {
+bool create_process(const std::string& process_name, Scheduler& scheduler, Config& config, size_t memory_size = 512) {
   //check for existing processname
   if (scheduler.find_process_by_name(process_name) != nullptr) {
     std::cerr << "Error: Process '" << process_name << "' already exists. Please choose a unique name." << std::endl;
@@ -106,12 +106,12 @@ bool create_process(const std::string& process_name, Scheduler& scheduler, Confi
 
   InstructionGenerator generator;
 
-  // TODO: Update this to actual memory size
-  auto instructions = generator.generateRandomProgram(config.minInstructions, config.maxInstructions, process_name, 512);
+  auto instructions = generator.generateRandomProgram(config.minInstructions, config.maxInstructions, process_name, memory_size);
   auto pcb = std::make_shared<PCB>(process_name, instructions);
   
   std::cout << "Created process '" << process_name << "' with " 
-            << instructions.size() << " instructions." << std::endl;
+            << instructions.size() << " instructions and memory size of "
+            << memory_size << " bytes." << std::endl;
   
   scheduler.submit_process(pcb);
   std::this_thread::sleep_for(std::chrono::milliseconds(100));
@@ -179,15 +179,29 @@ void screen(std::vector<std::string>& args, Scheduler& scheduler, Config& config
 
   switch (cmd) {
     case ScreenCommand::Start: {
-      if (args.size() != 2) {
+      if(args.size() == 3) {
+        try {
+          size_t mem_siz  = static_cast<size_t>(std::stoull(args[2]));
+          bool created_success = create_process(args[1], scheduler, config, mem_siz);
+          if (created_success) {
+            view_process_screen(args[1],scheduler);
+          }
+          break;
+        } catch (const std::invalid_argument& e) {
+            std::cout << "Invalid argument: " << e.what() << std::endl;
+        } catch (const std::out_of_range& e) {
+            std::cout << "Out of range: " << e.what() << std::endl;
+        }
+      } else if (args.size() == 2) {
+        bool created_success = create_process(args[1], scheduler, config);
+        if (created_success) {
+          view_process_screen(args[1],scheduler);
+        }
+        break;
+      } else {
         display_usage();
         return;
       }
-      bool created_success = create_process(args[1], scheduler, config);
-      if (created_success) {
-        view_process_screen(args[1],scheduler);
-      }
-      break;
     }
     case ScreenCommand::Resume:
       if (args.size() != 2) {
