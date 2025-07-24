@@ -118,6 +118,12 @@ std::vector<Expr> InstructionGenerator::generateInstructions(size_t count, const
             auto rhs = std::make_unique<Atom>("x", Atom::NAME);
             instructions.push_back(Expr::make_call_concat("PRINT", std::move(lhs), std::move(rhs)));
         } else if (i % 3 == 0) {
+            // Generate random Write address and variable
+            auto address = std::make_unique<Atom>(generateAddress(max_address));
+            uint16_t value = value_dist(rng);
+
+            instructions.push_back(Expr::make_write(std::move(address), std::make_unique<Atom>(value))); // WRITE
+        } else if (i % 5 == 0) {
             // Generate random READ address and variable
             if(total_variables >= 32){
                 total_variables = 0;
@@ -127,12 +133,6 @@ std::vector<Expr> InstructionGenerator::generateInstructions(size_t count, const
             
             total_variables++;
             instructions.push_back(Expr::make_read(var_name, std::move(address))); // READ
-        } else if (i % 5 == 0) {
-            // Generate random Write address and variable
-            auto address = std::make_unique<Atom>(generateAddress(max_address));
-            uint16_t value = value_dist(rng);
-
-            instructions.push_back(Expr::make_write(std::move(address), std::make_unique<Atom>(value))); // WRITE
         } else {
             uint16_t add_val = add_value_dist(rng);
             auto lhs = std::make_unique<Atom>("x", Atom::NAME);
