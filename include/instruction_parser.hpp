@@ -27,12 +27,12 @@ struct Atom {
             case NUMBER:
                 return std::to_string(number_value);
         }
-        return "";
+        return "THIS SHOULDNT HAPPEN";
     }
 };
 
 struct Expr {
-    enum Type { DECLARE, CALL, CONSTANT, VOID_EXPR, ADD, SUB, FOR };
+    enum Type { DECLARE, CALL, CONSTANT, VOID_EXPR, ADD, SUB, FOR, READ, WRITE };
     Type type;
     
     std::string var_name;
@@ -159,6 +159,22 @@ struct Expr {
         e.atom_value = std::move(value);
         return e;
     }
+
+    // Static methods for READ and WRITE operations
+    static Expr make_read(std::string var_name, std::unique_ptr<Atom> address) {
+    Expr e(READ);
+    e.var_name = std::move(var_name);   // destination variable
+    e.atom_value = std::move(address);  // memory address to read from
+    return e;
+    }   
+
+    static Expr make_write(std::unique_ptr<Atom> address, std::unique_ptr<Atom> value) {
+        Expr e(WRITE);
+        e.lhs = std::move(address);  // memory address
+        e.rhs = std::move(value);    // value to write
+        return e;
+    }
+    
 };
 
 struct ParseResult {
@@ -176,6 +192,7 @@ public:
     static ParseResult parse_string(const std::string& input, Atom& result);
     static ParseResult parse_name(const std::string& input, Atom& result);
     static ParseResult parse_number(const std::string& input, Atom& result);
+    static ParseResult parse_address(const std::string& input, Atom& result);
     static ParseResult parse_atom(const std::string& input, Atom& result);
     static ParseResult parse_declare(const std::string& input, Expr& result);
     static ParseResult parse_add(const std::string& input, Expr& result);
@@ -183,6 +200,8 @@ public:
     static ParseResult parse_call(const std::string& input, Expr& result);
     static ParseResult parse_for(const std::string& input, Expr& result);
     static ParseResult parse_expr(const std::string& input, Expr& result);
+    static ParseResult parse_read(const std::string& input, Expr& result);
+    static ParseResult parse_write(const std::string& input, Expr& result);
     static ParseResult parse_program(const std::string& input, std::vector<Expr>& result);
     
 private:
