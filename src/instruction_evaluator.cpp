@@ -1,0 +1,206 @@
+#include "instruction_evaluator.hpp"
+#include <string>
+#include <vector>
+#include <memory>
+#include <variant>
+#include <iostream>
+#include <unordered_map>
+#include <format>
+#include <chrono>
+namespace osemu {
+
+InstructionEvaluator::InstructionEvaluator() {
+    
+}
+
+void InstructionEvaluator::evaluate(const Expr& expr) {
+    switch (expr.type) {
+        case Expr::DECLARE: {
+            if (expr.var_name.empty() || !expr.atom_value) {
+                throw std::runtime_error("Invalid DECLARE: missing variable name or value");
+            }
+            handle_declare(expr.var_name, *expr.atom_value);
+            break;
+        }
+        
+        case Expr::CALL: {
+            if (expr.var_name == "PRINT") {
+                if (expr.atom_value) { 
+                    handle_print(*expr.atom_value, "");
+                } else if (expr.lhs && expr.rhs) { 
+                    std::string lhs_str = print_atom_to_string(*expr.lhs);
+                    std::string rhs_str = print_atom_to_string(*expr.rhs);
+                    Atom concatenated_atom(lhs_str + rhs_str, Atom::STRING);
+                    handle_print(concatenated_atom, "");
+                } else {
+                    throw std::runtime_error("Invalid PRINT call: malformed arguments");
+                }
+            } else if (expr.var_name == "SLEEP") {
+                if (!expr.atom_value) {
+                    throw std::runtime_error("Invalid SLEEP call: missing argument");
+                }
+                handle_sleep(*expr.atom_value);
+            } else {
+                throw std::runtime_error("Unknown function: " + expr.var_name);
+            }
+            break;
+        }
+        
+        case Expr::ADD: {
+            if (expr.var_name.empty() || !expr.lhs || !expr.rhs) {
+                throw std::runtime_error("Invalid ADD: missing variable name or operands");
+            }
+            handle_add(expr.var_name, *expr.lhs, *expr.rhs);
+            break;
+        }
+        
+        case Expr::SUB: {
+            if (expr.var_name.empty() || !expr.lhs || !expr.rhs) {
+                throw std::runtime_error("Invalid SUB: missing variable name or operands");
+            }
+            handle_sub(expr.var_name, *expr.lhs, *expr.rhs);
+            break;
+        }
+        
+        case Expr::FOR: {
+            if (!expr.n) {
+                throw std::runtime_error("Invalid FOR: missing loop count");
+            }
+            handle_for(expr.body, *expr.n);
+            break;
+        }
+        
+        case Expr::CONSTANT:
+        case Expr::VOID_EXPR:
+            
+            break;
+            
+        default:
+            throw std::runtime_error("Unknown expression type");
+    }
+}
+
+void InstructionEvaluator::evaluate_program(const std::vector<Expr>& program) {
+    for (const auto& expr : program) {
+        evaluate(expr);
+    }
+}
+
+uint16_t InstructionEvaluator::resolve_atom_value(const Atom& atom) {
+    switch (atom.type) {
+        case Atom::NAME: {
+            auto it = variables.find(atom.string_value);
+            if (it != variables.end()) {
+                return it->second;
+            } else {
+                
+                return 0;
+            }
+        }
+        case Atom::NUMBER:
+            return atom.number_value;
+        case Atom::STRING:
+            throw std::runtime_error("Cannot convert string to numeric value");
+        default:
+            throw std::runtime_error("Unknown atom type");
+    }
+}
+
+std::string InstructionEvaluator::print_atom_to_string(const Atom& atom) {
+    switch (atom.type) {
+        case Atom::STRING:
+            return atom.string_value;
+        case Atom::NUMBER:
+            return std::to_string(atom.number_value);
+        case Atom::NAME: {
+            
+            auto it = variables.find(atom.string_value);
+            if (it != variables.end()) {
+                return std::to_string(it->second);
+            } else {
+                return "0"; 
+            }
+        }
+        default:
+            throw std::runtime_error("Unknown atom type in print");
+    }
+}
+
+void InstructionEvaluator::handle_declare(const std::string& var_name, const Atom& value) {
+    if (value.type == Atom::NUMBER) {
+        variables[var_name] = value.number_value;
+    } else if (value.type == Atom::NAME) {
+        
+        variables[var_name] = resolve_atom_value(value);
+    } else {
+        throw std::runtime_error("DECLARE requires numeric value or variable reference");
+    }
+}
+
+std::string InstructionEvaluator::handle_print(const Atom& arg, const std::string& process_name) {
+    std::string output = print_atom_to_string(arg);
+    
+    auto now = std::chrono::system_clock::now();
+    auto truncated_time = std::chrono::time_point_cast<std::chrono::seconds>(now);
+    std::string timestamp = std::format("{:%m/%d/%Y %I:%M:%S %p}", truncated_time);
+
+    std::string log_entry;
+    if (!process_name.empty()) {
+        log_entry = std::format("({}) \"{}\"", timestamp, output);
+    } else {
+        log_entry = std::format("({}) \"{}\"", timestamp, output);
+    }
+    
+    output_log.push_back(log_entry);
+    return output;
+}
+
+void InstructionEvaluator::handle_sleep(const Atom& duration) {
+    uint16_t cycles = resolve_atom_value(duration);
+    
+    
+}
+
+void InstructionEvaluator::handle_add(const std::string& var, const Atom& lhs, const Atom& rhs) {
+    uint16_t left_val = resolve_atom_value(lhs);
+    uint16_t right_val = resolve_atom_value(rhs);
+    
+    
+    uint32_t result = static_cast<uint32_t>(left_val) + static_cast<uint32_t>(right_val);
+    if (result > 65535) {
+        result = 65535; 
+    }
+    
+    variables[var] = static_cast<uint16_t>(result);
+}
+
+void InstructionEvaluator::handle_sub(const std::string& var, const Atom& lhs, const Atom& rhs) {
+    uint16_t left_val = resolve_atom_value(lhs);
+    uint16_t right_val = resolve_atom_value(rhs);
+    
+    
+    uint16_t result;
+    if (left_val >= right_val) {
+        result = left_val - right_val;
+    } else {
+        result = 0; 
+    }
+    
+    variables[var] = result;
+}
+
+void InstructionEvaluator::handle_for(const std::vector<Expr>& body, const Atom& count) {
+    uint16_t iterations = resolve_atom_value(count);
+    
+    for (uint16_t i = 0; i < iterations; i++) {
+        for (const auto& instruction : body) {
+            evaluate(instruction);
+        }
+    }
+}
+
+void InstructionEvaluator::clear_variables() {
+    variables.clear();
+}
+
+}

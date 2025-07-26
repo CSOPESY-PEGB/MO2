@@ -7,6 +7,7 @@
 #include <string>
 #include <vector>
 #include "instruction_parser.hpp"
+#include "instruction_evaluator.hpp"
 #include <atomic>
 #include <map>
 
@@ -51,7 +52,7 @@ class PCB : public std::enable_shared_from_this<PCB> {
   std::vector<uint16_t> heap_memory;  
 
   std::vector<Expr> instructions;
-  InstructionEvaluator evaluator;
+  InstructionEvaluator evaluator; //CONTAINS VARIABLES
   uint16_t sleepCyclesRemaining;
 };
 
