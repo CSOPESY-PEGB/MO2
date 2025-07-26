@@ -106,7 +106,7 @@ bool create_process(const std::string& process_name, Scheduler& scheduler, Confi
 
   InstructionGenerator generator;
 
-  auto instructions = generator.generateRandomProgram(config.minInstructions, config.maxInstructions, process_name);
+  auto instructions = generator.generateRandomProgram(config.minInstructions, config.maxInstructions, process_name, config.min_mem_per_proc, config.max_mem_per_proc);
   auto pcb = std::make_shared<PCB>(process_name, instructions);
   
   std::cout << "Created process '" << process_name << "' with " 
@@ -146,7 +146,92 @@ void create_process_from_file(const std::string& filename, const std::string& pr
   scheduler.submit_process(pcb);
 }
 
-enum class ScreenCommand { Start, Resume, List, File, Unknown };
+
+std::string unescapeQuotes(const std::string& str) {
+    std::string result;
+    bool inEscape = false;
+    
+    for (size_t i = 0; i < str.length(); ++i) {
+        if (str[i] == '\\' && i + 1 < str.length() && str[i + 1] == '"') {
+            // Skip the escape sequence for a quote
+            result += '"';
+            ++i; // Skip the next character (the quote)
+        } else {
+            result += str[i];
+        }
+    }
+
+    return result;
+}
+
+std::string transformInstructions(const std::string& input) {
+    std::string result;
+    std::string tempInput = input;
+    
+    // Remove the starting and ending double quotes
+    if (!tempInput.empty() && tempInput[0] == '"') {
+        tempInput = tempInput.substr(1, tempInput.size() - 2);  // Remove quotes
+    }
+    
+    // Unescape all double quotes
+    tempInput = unescapeQuotes(tempInput);
+    
+    // Split the input by semicolons (convert to new lines)
+    std::istringstream stream(tempInput);
+    std::string line;
+    
+    while (std::getline(stream, line, ';')) {
+        if (line.empty()) continue; // Skip empty lines
+        if (line.starts_with(" PRINT")){
+          result += line.substr(1);
+          break;
+        }; //dont clean print
+        // Now process each instruction
+        std::istringstream instrStream(line);
+        std::string instruction;
+        instrStream >> instruction; // Get the instruction (e.g., DECLARE, ADD)
+
+        result += instruction + "(";
+
+        // Process the arguments
+        std::string arg;
+        bool first = true;
+        
+        while (instrStream >> arg) {
+            if (!first) result += ", ";
+            result += arg;
+            first = false;
+        }
+
+        result += ")\n";
+    }
+
+    return result;
+}
+
+
+void create_process_from_string(const std::string& process_name, size_t memory, const std::string& instructions, Scheduler& scheduler){
+  //remove starting and ending "
+  //unescape all \" 
+  std::string input = transformInstructions(instructions);
+  std::vector<Expr> program;
+  ParseResult result = InstructionParser::parse_program(input, program);
+
+  if (!result.success) {
+    std::cerr << "Parse error: " << result.error_msg << std::endl;
+    std::cerr << "Remaining input: " << result.remaining << std::endl;
+    return;
+  }
+  
+  auto pcb = std::make_shared<PCB>(process_name, program, memory);
+  
+  std::cout << "Created process '" << process_name << " with " << memory << "bytes of memory." << std::endl;
+  
+  scheduler.submit_process(pcb);
+
+}
+
+enum class ScreenCommand { Start, Resume, List, File, Custom, Unknown };
 
 void display_usage() {
   std::cout
@@ -154,7 +239,8 @@ void display_usage() {
       << "  screen -s <name>     Start a new process with the given name.\n"
       << "  screen -r <name>     View the real-time log of a running process.\n"
       << "  screen -ls           List all active processes.\n"
-      << "  screen -f <file> <name>  Load process from .opesy file.\n";
+      << "  screen -f <file> <name>  Load process from .opesy file.\n"
+      << "  screen -c <name> <process_memory_size> \"<instructions>\" Make a custom process with instructions\n" ;
 }
 
 ScreenCommand parse_command(const std::string& cmd) {
@@ -162,6 +248,7 @@ ScreenCommand parse_command(const std::string& cmd) {
   if (cmd == "-r") return ScreenCommand::Resume;
   if (cmd == "-ls") return ScreenCommand::List;
   if (cmd == "-f") return ScreenCommand::File;
+  if (cmd == "-c") return ScreenCommand::Custom;
   return ScreenCommand::Unknown;
 }
 
@@ -208,6 +295,25 @@ void screen(std::vector<std::string>& args, Scheduler& scheduler, Config& config
       create_process_from_file(args[1], args[2], scheduler);
       break;
 
+    case ScreenCommand::Custom:
+      size_t num;
+
+      //error handling
+      if(args.size() != 4){
+        display_usage();
+        return;
+      } 
+
+      //more error handling
+      try {
+        num = std::stoul(args[2]);
+      } catch(...) {
+        std::cout << "Please input a valid number for process_memory_size" << std::endl;
+      }
+
+      create_process_from_string(args[1], num, args[3], scheduler);
+
+    break;
     case ScreenCommand::Unknown:
     default:
       std::cout << "Unknown screen command: " << args[0] << "\n";

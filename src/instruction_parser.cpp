@@ -93,6 +93,40 @@ ParseResult InstructionParser::parse_number(const std::string& input, Atom& resu
     return ParseResult(true, trimmed.substr(i));
 }
 
+ParseResult InstructionParser::parse_address(const std::string& input, Atom& result) {
+    std::string trimmed = ltrim(input);
+    size_t pos = 0; // Will be updated by stoull to show how many chars were parsed
+    try {
+        // stoull will parse hex if the string starts with 0x and base is 0.
+        // We use base 0 for auto-detection.
+        unsigned long long number_val = std::stoull(trimmed, &pos, 0);
+
+        // After the call, we check if it actually parsed a hex number.
+        // 1. `pos` must be > 2 (at least "0x" and one digit).
+        // 2. The original string must start with "0x" or "0X".
+        if (pos < 3 || (trimmed.substr(0, 2) != "0x" && trimmed.substr(0, 2) != "0X")) {
+            // It might have parsed a decimal or octal number, which we don't want.
+            return ParseResult(false, trimmed, "Address must be a hexadecimal number starting with 0x");
+        }
+        
+        if (number_val > 65535) {
+            return ParseResult(false, trimmed, "Address value out of range for uint16_t");
+        }
+        
+        result = Atom(static_cast<uint16_t>(number_val));
+        
+        // The remaining string is the original trimmed string starting from `pos`.
+        return ParseResult(true, trimmed.substr(pos));
+
+    } catch (const std::invalid_argument&) {
+        // stoull throws this if no conversion could be performed at all.
+        return ParseResult(false, trimmed, "Invalid address format");
+    } catch (const std::out_of_range&) {
+        // stoull throws this if the number is too big for an unsigned long long.
+        return ParseResult(false, trimmed, "Address value out of range for uint16_t");
+    }
+}
+
 ParseResult InstructionParser::parse_atom(const std::string& input, Atom& result) {
     std::string trimmed = ltrim(input);
     
@@ -104,6 +138,11 @@ ParseResult InstructionParser::parse_atom(const std::string& input, Atom& result
     ParseResult name_result = parse_name(trimmed, result);
     if (name_result.success) {
         return name_result;
+    }
+
+    ParseResult address_result = parse_address(trimmed, result);
+    if (address_result.success){
+        return address_result;
     }
     
     ParseResult number_result = parse_number(trimmed, result);
@@ -263,6 +302,93 @@ ParseResult InstructionParser::parse_sub(const std::string& input, Expr& result)
     return ParseResult(true, remaining);
 }
 
+
+ParseResult InstructionParser::parse_read(const std::string& input, Expr& result){
+    std::string remaining;
+    if (!consume_tag(input, "READ", remaining)) {
+        return ParseResult(false, input, "Expected READ");
+    }
+    
+    remaining = ltrim(remaining);
+    if (!consume_tag(remaining, "(", remaining)) {
+        return ParseResult(false, remaining, "Expected opening parenthesis");
+    }
+    
+    Atom var_atom(0);
+    ParseResult var_result = parse_name(remaining, var_atom);
+    if (!var_result.success) {
+        return ParseResult(false, remaining, "Expected variable name");
+    }
+    remaining = var_result.remaining;
+    
+    remaining = ltrim(remaining);
+    if (!consume_tag(remaining, ",", remaining)) {
+        return ParseResult(false, remaining, "Expected comma");
+    }
+    
+    Atom address_atom(0);
+    ParseResult address_result = parse_atom(remaining, address_atom);
+    if (!address_result.success) {
+        return ParseResult(false, remaining, "Expected address value");
+    }
+    remaining = address_result.remaining;
+    
+    remaining = ltrim(remaining);
+    if (!consume_tag(remaining, ")", remaining)) {
+        return ParseResult(false, remaining, "Expected closing parenthesis");
+    }
+    
+    // Assuming Expr::make_read(string var_name, unique_ptr<Atom> address) exists
+    result = Expr::make_read(var_atom.string_value, 
+                             std::make_unique<Atom>(address_atom));
+    
+    return ParseResult(true, remaining);
+}
+
+ParseResult InstructionParser::parse_write(const std::string& input, Expr& result){
+    std::string remaining;
+    if (!consume_tag(input, "WRITE", remaining)) {
+        return ParseResult(false, input, "Expected WRITE");
+    }
+
+    remaining = ltrim(remaining);
+    if (!consume_tag(remaining, "(", remaining)) {
+        return ParseResult(false, remaining, "Expected opening parenthesis");
+    }
+
+    Atom address_atom(0);
+    ParseResult address_result = parse_atom(remaining, address_atom);
+    if (!address_result.success) {
+        return ParseResult(false, remaining, "Expected address value");
+    }
+    remaining = address_result.remaining;
+
+    remaining = ltrim(remaining);
+    if (!consume_tag(remaining, ",", remaining)) {
+        std::cout << remaining << "AYOKO NA" << std::endl;
+        return ParseResult(false, remaining, "Expected comma");
+    }
+
+    Atom value_atom(0);
+    ParseResult value_result = parse_atom(remaining, value_atom);
+    if (!value_result.success) {
+        return ParseResult(false, remaining, "Expected value to write (variable or literal)");
+    }
+    remaining = value_result.remaining;
+
+    remaining = ltrim(remaining);
+    if (!consume_tag(remaining, ")", remaining)) {
+        return ParseResult(false, remaining, "Expected closing parenthesis");
+    }
+    
+    // Assuming Expr::make_write(unique_ptr<Atom> address, unique_ptr<Atom> value) exists
+    result = Expr::make_write(std::make_unique<Atom>(address_atom),
+                              std::make_unique<Atom>(value_atom));
+
+    return ParseResult(true, remaining);
+}
+
+
 ParseResult InstructionParser::parse_call(const std::string& input, Expr& result) {
     std::string trimmed = ltrim(input);
     
@@ -409,6 +535,17 @@ ParseResult InstructionParser::parse_expr(const std::string& input, Expr& result
     ParseResult call_result = parse_call(trimmed, result);
     if (call_result.success) {
         return call_result;
+    }
+
+    ParseResult read_result = parse_read(trimmed, result);
+    if (read_result.success){
+        return read_result;
+    }
+
+    ParseResult write_result = parse_write(trimmed, result);
+    std::cout << write_result.error_msg;
+    if(write_result.success){
+        return write_result;
     }
     
     return ParseResult(false, trimmed, "Expected expression");

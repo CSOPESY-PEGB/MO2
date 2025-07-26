@@ -8,6 +8,7 @@
 #include <vector>
 #include "instruction_parser.hpp"
 #include <atomic>
+#include <map>
 
 namespace osemu {
 
@@ -15,6 +16,8 @@ class PCB : public std::enable_shared_from_this<PCB> {
  public:
   PCB(std::string procName, size_t totalLines);
   PCB(std::string procName, const std::vector<Expr>& instructions);
+  PCB(std::string procName, const std::vector<Expr>& instrs,
+      size_t memory_size);
   static std::atomic<uint32_t> next_pid;
 
   void step();
@@ -40,7 +43,13 @@ class PCB : public std::enable_shared_from_this<PCB> {
   std::optional<int> assignedCore;
   std::chrono::system_clock::time_point finishTime;
   
-  
+  std::map<std::string, uint16_t> symbol_table;
+  size_t symbol_table_limit = 32; // Limit for symbol table size
+  size_t symbol_table_size = 0; // Current size of the symbol table
+
+  // Heap memory for the process
+  std::vector<uint16_t> heap_memory;  
+
   std::vector<Expr> instructions;
   InstructionEvaluator evaluator;
   uint16_t sleepCyclesRemaining;
