@@ -46,7 +46,6 @@ class Scheduler::CPUWorker {
  private:
 
    void run(){
-    // FIXED: Changed condition from !scheduler_.running_.load() to scheduler_.running_.load()
     while(scheduler_.running_.load()){
       std::unique_lock<std::mutex> lock(mutex_);
 
@@ -58,7 +57,6 @@ class Scheduler::CPUWorker {
         break;
       }
 
-      // FIXED: Added check to ensure we have a task before proceeding
       if (!current_task_) {
         idle_ = true;
         continue;
@@ -75,10 +73,10 @@ class Scheduler::CPUWorker {
   void execute_process(std::shared_ptr<PCB> pcb, int tq) {
     pcb->assignedCore = core_id_;
     scheduler_.move_to_running(pcb);
-    
-    size_t last_tick = scheduler_.ticks_.load(); 
+    size_t first_tick = scheduler_.get_ticks();
+    size_t last_tick = first_tick; 
     int steps = 0;
-    while(steps < tq && !pcb->isComplete()){
+    while((tq == -1 || last_tick - first_tick < tq) && !pcb->isComplete()){
       if(!scheduler_.running_.load() || shutdown_requested_.load()){
         break;
       }
@@ -92,20 +90,18 @@ class Scheduler::CPUWorker {
       }
       
       if(!scheduler_.running_.load() || shutdown_requested_.load()) break;
-      last_tick = scheduler_.get_ticks();
-
-      // FIXED: Changed condition to execute on every tick, not just specific intervals
-      // This ensures processes actually make progress
-      if(last_tick % (scheduler_.delay_per_exec_ + 1) == 0){
-        
-        pcb->step();
-        
-        steps++; 
+  
+      if(scheduler_.get_ticks() - last_tick >= scheduler_.delay_per_exec_){
+        pcb->step(); 
       }
+      last_tick = scheduler_.get_ticks();
     }
 
     if(pcb->isComplete()){
         pcb->finishTime = std::chrono::system_clock::now();
+        if (scheduler_.memory_manager_) {
+            scheduler_.memory_manager_->free(pcb->processID);
+        }
         scheduler_.move_to_finished(pcb);
       } else {
         scheduler_.move_to_ready(pcb);
@@ -115,15 +111,10 @@ class Scheduler::CPUWorker {
   int core_id_;
   std::thread thread_;
   Scheduler& scheduler_;
-
   std::atomic<bool> idle_{true};
   std::atomic<bool> shutdown_requested_{false};
-
-  
   std::shared_ptr<PCB> current_task_;
   int time_quantum_;
-
-  
   std::mutex mutex_;
   std::condition_variable cv_;
 };
@@ -152,14 +143,38 @@ void Scheduler::dispatch(){
       if(!running_.load()) break;
       else continue;
     }
-
+    
+    // Check with the memory manager, the single source of truth.
+    bool can_run = false;
+    if (memory_manager_) {
+        if (memory_manager_->is_allocated(process->processID)) {
+            // It's already in memory, so it can run.
+            can_run = true;
+        } else {
+            // It's not in memory, try to allocate it.
+            if (memory_manager_->allocate(process->processID, mem_per_proc_)) {
+                // Allocation succeeded, so it can run.
+                can_run = true;
+            }
+            // If allocation fails, can_run remains false.
+        }
+    }
+    
+    if (!can_run) {
+        // Defer the process if it couldn't be run.
+        // std::cout << "PID " << process->processID << " deferred due to lack of memory. Returning to queue." << std::endl;
+        ready_queue_.push(std::move(process));
+        continue;
+    }
+    
+    // If we reach here, the process has memory and is ready for a CPU.
     bool dispatched = false;
     while (!dispatched && running_.load()){
       for (auto& worker: cpu_workers_){
         if (worker->is_idle()){
           
           if (algorithm_ == SchedulingAlgorithm::FCFS) {
-            int remaining_instructions = process->totalInstructions - process->currentInstruction;
+            int remaining_instructions = -1;
             worker->assign_task(process, remaining_instructions);
             dispatched = true;
             break;
@@ -173,19 +188,13 @@ void Scheduler::dispatch(){
         }
       }
       
-      // FIXED: Added small delay to prevent busy waiting when no cores are available
-      if (!dispatched && running_.load()) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
-      }
     }
-    
   }
 }
 
 void Scheduler::global_clock(){
   while(running_.load()){
-    std::this_thread::sleep_for(std::chrono::milliseconds(5));
-    
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
     if(!running_.load()) break;
     
     {
@@ -193,6 +202,12 @@ void Scheduler::global_clock(){
         ticks_++;
     }
     clock_cv_.notify_all();
+
+    if (running_.load() && memory_manager_ && (ticks_.load() % quantum_cycles_) == 0 && ticks_.load() > 0) {
+        quantum_report_counter_++;
+        std::string filename = "memory_stamp_" + std::to_string(quantum_report_counter_.load()) + ".txt";
+        memory_manager_->generate_memory_report(filename);
+    }
   }
 }
 
@@ -201,6 +216,9 @@ void Scheduler::start(const Config& config) {
   delay_per_exec_ = config.delayCyclesPerInstruction;
   quantum_cycles_ = config.quantumCycles;
   algorithm_ = config.scheduler;
+
+  memory_manager_ = std::make_unique<MemoryManager>(config.max_overall_mem);
+  mem_per_proc_ = config.min_mem_per_proc;
 
   for (uint32_t i = 0; i < config.cpuCount; ++i) {
     cpu_workers_.push_back(std::make_unique<CPUWorker>(i, *this));
@@ -211,7 +229,6 @@ void Scheduler::start(const Config& config) {
 
   global_clock_thread_ = std::thread(&Scheduler::global_clock, this);
   dispatch_thread_ = std::thread(&Scheduler::dispatch, this);
-  
 }
 
 void Scheduler::stop() {
@@ -239,6 +256,8 @@ void Scheduler::stop() {
     global_clock_thread_.join();
   }
 
+  memory_manager_.reset();
+
   std::cout << "Scheduler stopped." << std::endl;
   std::cout << "Number of cycles from this run: " << ticks_.load() << std::endl;
 }
@@ -248,7 +267,6 @@ void Scheduler::submit_process(std::shared_ptr<PCB> pcb) {
     std::lock_guard<std::mutex> lock(map_mutex_);
     all_processes_map_[pcb->processName] = pcb;
   }
-
   ready_queue_.push(std::move(pcb));
 }
 
@@ -328,12 +346,11 @@ void Scheduler::start_batch_generation(const Config& config) {
   
   batch_generating_ = true;
   batch_generator_thread_ = std::make_unique<std::thread>([this, config]() {
-    uint32_t cpu_cycles = 0;
+    uint32_t last_tick_seen = 0;
     
-    while (batch_generating_.load()) {
-      cpu_cycles++;
-      
-      if (cpu_cycles % config.processGenFrequency == 0) {
+    while (batch_generating_.load()) {      
+      if (get_ticks() - last_tick_seen >= batch_process_freq_) {
+        last_tick_seen = get_ticks();
        std::string process_name;
        
        {
@@ -357,7 +374,6 @@ void Scheduler::start_batch_generation(const Config& config) {
         submit_process(pcb);
       }
       
-      std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
   });
   
@@ -374,7 +390,12 @@ void Scheduler::stop_batch_generation() {
   }
   batch_generator_thread_.reset();
 
-  std::cout << "Stopped batch process generation." << std::endl;
+ uint32_t count = 0;
+  {
+    std::lock_guard<std::mutex> lock(process_counter_mutex_);
+    count = process_counter_;
+  }
+  std::cout << count << " processes generated" << std::endl;
 }
 
 void Scheduler::calculate_cpu_utilization(size_t& total_cores,
@@ -397,7 +418,7 @@ void Scheduler::generate_report(const std::string& filename) const {
   std::ofstream report_file(filename);
   
   if (!report_file.is_open()) {
-    std::cerr << "Failed to create report file: " << filename << std::endl;
+    // std::cerr << "Failed to create report file: " << filename << std::endl;
     return;
   }
 
