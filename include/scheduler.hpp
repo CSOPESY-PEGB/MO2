@@ -11,6 +11,7 @@
 #include "thread_safe_queue.hpp"
 #include "instruction_generator.hpp"
 #include "config.hpp"
+#include "memory_manager.hpp" // NEW: Include the memory manager header
 
 namespace osemu {
 
@@ -30,7 +31,6 @@ class Scheduler {
   void submit_process(std::shared_ptr<PCB> pcb);
   void print_status() const;
 
-  
   void start_batch_generation(const Config& config);
   void stop_batch_generation();
   void calculate_cpu_utilization(size_t& total_cores, size_t& cores_used,
@@ -41,6 +41,8 @@ class Scheduler {
   void generate_report(const std::string& filename = "csopesy-log.txt") const;
 
   size_t get_ticks(){ return ticks_.load(); } 
+
+  std::unique_ptr<MemoryManager> memory_manager_;
 
  private:
   friend class CPUWorker;
@@ -68,7 +70,6 @@ class Scheduler {
 
   std::thread dispatch_thread_;
 
-  
   std::atomic<bool> batch_generating_;
   std::unique_ptr<std::thread> batch_generator_thread_;
   InstructionGenerator instruction_generator_;
@@ -79,8 +80,12 @@ class Scheduler {
   mutable std::mutex clock_mutex_; 
   std::condition_variable clock_cv_; 
   std::thread global_clock_thread_;
-
   
+  // --- NEW and MODIFIED MEMBERS for Memory Management ---
+  uint32_t mem_per_proc_{4096};
+  std::atomic<size_t> quantum_report_counter_{0};
+  // ---------------------------------------------------
+
   size_t batch_process_freq_{1};
   size_t delay_per_exec_{0};
   size_t quantum_cycles_{5};
@@ -90,4 +95,4 @@ class Scheduler {
 
 }  
 
-#endif  
+#endif
