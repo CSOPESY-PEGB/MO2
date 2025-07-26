@@ -205,8 +205,6 @@ void Scheduler::global_clock(){
 
     if (running_.load() && memory_manager_ && (ticks_.load() % quantum_cycles_) == 0 && ticks_.load() > 0) {
         quantum_report_counter_++;
-        std::string filename = "memory_stamp_" + std::to_string(quantum_report_counter_.load()) + ".txt";
-        memory_manager_->generate_memory_report(filename);
     }
   }
 }
@@ -339,6 +337,9 @@ void Scheduler::move_to_ready(std::shared_ptr<PCB> pcb) {
 }
 
 void Scheduler::start_batch_generation(const Config& config) {
+
+
+
   if (batch_generating_.load()) {
     std::cout << "Batch process generation is already running." << std::endl;
     return;
@@ -367,7 +368,9 @@ void Scheduler::start_batch_generation(const Config& config) {
         auto instructions = instruction_generator_.generateRandomProgram(
           config.minInstructions, 
           config.maxInstructions, 
-          process_name
+          process_name, 
+          config.min_mem_per_proc,
+          config.max_mem_per_proc
         );
         
         auto pcb = std::make_shared<PCB>(process_name, instructions);
