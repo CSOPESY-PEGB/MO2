@@ -10,13 +10,24 @@
 #include "instruction_parser.hpp"
 
 namespace osemu {
+
+    class PCB;
+
     class InstructionEvaluator {
     private:
-        std::unordered_map<std::string, uint16_t> variables;
-        std::vector<std::string> output_log;
+        //for now, we won't page this into separate blocks first but we will soon.
+        std::vector<uint8_t>& heap_memory; 
+        //here we store string(variable name):address(logical memory address, starts from the top of heap_memory) 
+        std::unordered_map<std::string, uint16_t>& symbol_table; 
+        //output log
+        std::vector<std::string>& output_log;
+        std::string& process_name;
 
     public:
-        InstructionEvaluator();
+        InstructionEvaluator(std::vector<uint8_t>& heap_memory, 
+            std::unordered_map<std::string, uint16_t>& symbol_table, 
+            std::vector<std::string>& output_log, 
+            std::string& process_name);
 
         uint16_t resolve_atom_value(const Atom& atom);
         std::string print_atom_to_string(const Atom& atom);
@@ -30,6 +41,8 @@ namespace osemu {
         void handle_add(const std::string& var, const Atom& lhs, const Atom& rhs);
         void handle_sub(const std::string& var, const Atom& lhs, const Atom& rhs);
         void handle_for(const std::vector<Expr>& body, const Atom& count);
+        void handle_read();
+        void handle_write();
 
         void clear_variables();
         void dump_variables() const;
