@@ -365,7 +365,6 @@ ParseResult InstructionParser::parse_write(const std::string& input, Expr& resul
 
     remaining = ltrim(remaining);
     if (!consume_tag(remaining, ",", remaining)) {
-        std::cout << remaining << "AYOKO NA" << std::endl;
         return ParseResult(false, remaining, "Expected comma");
     }
 
@@ -543,7 +542,6 @@ ParseResult InstructionParser::parse_expr(const std::string& input, Expr& result
     }
 
     ParseResult write_result = parse_write(trimmed, result);
-    std::cout << write_result.error_msg;
     if(write_result.success){
         return write_result;
     }

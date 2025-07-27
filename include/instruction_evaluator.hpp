@@ -41,8 +41,8 @@ namespace osemu {
         void handle_add(const std::string& var, const Atom& lhs, const Atom& rhs);
         void handle_sub(const std::string& var, const Atom& lhs, const Atom& rhs);
         void handle_for(const std::vector<Expr>& body, const Atom& count);
-        void handle_read();
-        void handle_write();
+        void handle_read(const std::string& var_name, const Atom& rhs);
+        void handle_write(const Atom& address, const Atom& rhs);
 
         void clear_variables();
         void dump_variables() const;
