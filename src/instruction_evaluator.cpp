@@ -7,11 +7,19 @@
 #include <unordered_map>
 #include <format>
 #include <chrono>
+#include <memory>
+
 namespace osemu {
 
-InstructionEvaluator::InstructionEvaluator() {
-    
-}
+InstructionEvaluator::InstructionEvaluator(
+    std::vector<uint8_t>& heap_memory, 
+    std::unordered_map<std::string, uint16_t>& symbol_table, 
+    std::vector<std::string>& output_log, 
+    std::string& process_name) 
+    : heap_memory(heap_memory), 
+    symbol_table(symbol_table), 
+    output_log(output_log), 
+    process_name(process_name) {}
 
 void InstructionEvaluator::evaluate(const Expr& expr) {
     switch (expr.type) {
@@ -89,8 +97,8 @@ void InstructionEvaluator::evaluate_program(const std::vector<Expr>& program) {
 uint16_t InstructionEvaluator::resolve_atom_value(const Atom& atom) {
     switch (atom.type) {
         case Atom::NAME: {
-            auto it = variables.find(atom.string_value);
-            if (it != variables.end()) {
+            auto it = symbol_table.find(atom.string_value);
+            if (it != symbol_table.end()) {
                 return it->second;
             } else {
                 
@@ -114,8 +122,8 @@ std::string InstructionEvaluator::print_atom_to_string(const Atom& atom) {
             return std::to_string(atom.number_value);
         case Atom::NAME: {
             
-            auto it = variables.find(atom.string_value);
-            if (it != variables.end()) {
+            auto it = symbol_table.find(atom.string_value);
+            if (it != symbol_table.end()) {
                 return std::to_string(it->second);
             } else {
                 return "0"; 
@@ -128,10 +136,10 @@ std::string InstructionEvaluator::print_atom_to_string(const Atom& atom) {
 
 void InstructionEvaluator::handle_declare(const std::string& var_name, const Atom& value) {
     if (value.type == Atom::NUMBER) {
-        variables[var_name] = value.number_value;
+        symbol_table[var_name] = value.number_value;
     } else if (value.type == Atom::NAME) {
         
-        variables[var_name] = resolve_atom_value(value);
+        symbol_table[var_name] = resolve_atom_value(value);
     } else {
         throw std::runtime_error("DECLARE requires numeric value or variable reference");
     }
@@ -171,7 +179,7 @@ void InstructionEvaluator::handle_add(const std::string& var, const Atom& lhs, c
         result = 65535; 
     }
     
-    variables[var] = static_cast<uint16_t>(result);
+    symbol_table[var] = static_cast<uint16_t>(result);
 }
 
 void InstructionEvaluator::handle_sub(const std::string& var, const Atom& lhs, const Atom& rhs) {
@@ -186,7 +194,7 @@ void InstructionEvaluator::handle_sub(const std::string& var, const Atom& lhs, c
         result = 0; 
     }
     
-    variables[var] = result;
+    symbol_table[var] = result;
 }
 
 void InstructionEvaluator::handle_for(const std::vector<Expr>& body, const Atom& count) {
@@ -200,7 +208,7 @@ void InstructionEvaluator::handle_for(const std::vector<Expr>& body, const Atom&
 }
 
 void InstructionEvaluator::clear_variables() {
-    variables.clear();
+    symbol_table.clear();
 }
 
 }

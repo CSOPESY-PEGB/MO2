@@ -1,17 +1,20 @@
 #ifndef OSEMU_PROCESS_CONTROL_BLOCK_H_
 #define OSEMU_PROCESS_CONTROL_BLOCK_H_
 
+#include "instruction_evaluator.hpp"
+
+
 #include <chrono>
 #include <memory>
 #include <optional>
 #include <string>
 #include <vector>
-#include "instruction_parser.hpp"
-#include "instruction_evaluator.hpp"
 #include <atomic>
 #include <map>
 
 namespace osemu {
+
+class InstructionEvaluator;
 
 class PCB : public std::enable_shared_from_this<PCB> {
  public:
@@ -44,16 +47,19 @@ class PCB : public std::enable_shared_from_this<PCB> {
   std::optional<int> assignedCore;
   std::chrono::system_clock::time_point finishTime;
   
-  std::map<std::string, uint16_t> symbol_table;
   size_t symbol_table_limit = 32; // Limit for symbol table size
   size_t symbol_table_size = 0; // Current size of the symbol table
 
-  // Heap memory for the process
-  std::vector<uint16_t> heap_memory;  
-
+  
   std::vector<Expr> instructions;
-  InstructionEvaluator evaluator; //CONTAINS VARIABLES
   uint16_t sleepCyclesRemaining;
+
+  //evaluator stuff
+  std::vector<uint8_t> heap_memory; //for now, this is the raw memory representation, this will be replaced with a page table.
+  std::unordered_map<std::string, uint16_t> symbol_table; //here we store string(variable name):address(logical memory address, starts from the top of heap_memory) 
+  std::vector<std::string> output_log;
+  std::unique_ptr<InstructionEvaluator> evaluator; //evaluator takes all the top 3 members as its members too.
+
 };
 
 }  
