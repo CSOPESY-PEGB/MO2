@@ -54,7 +54,7 @@ PCB::PCB(std::string procName, const std::vector<Expr>& instrs, size_t memory_si
       assignedCore(std::nullopt),
       sleepCyclesRemaining(0),
       instructions(instrs),
-      heap_memory(memory_size - 64, 0),
+      heap_memory(memory_size, 0), // no need to subtract 64 since we're already taking that into account!
       evaluator(std::make_unique<InstructionEvaluator>(
           this->heap_memory,
           this->symbol_table,
