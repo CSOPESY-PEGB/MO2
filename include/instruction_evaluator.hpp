@@ -23,6 +23,12 @@ namespace osemu {
         std::vector<std::string>& output_log;
         std::string& process_name;
 
+        //helper functions for dealing with memory
+        uint16_t get_or_create_variable_address(const std::string& var_name);
+        uint16_t read_u16_from_heap(uint16_t address);
+        void write_u16_to_heap(uint16_t address, uint16_t value);
+        void write_u16_to_mem(uint16_t address, uint16_t value);
+
     public:
         InstructionEvaluator(std::vector<uint8_t>& heap_memory, 
             std::unordered_map<std::string, uint16_t>& symbol_table, 
