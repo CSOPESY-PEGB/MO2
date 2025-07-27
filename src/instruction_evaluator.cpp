@@ -30,6 +30,23 @@ void InstructionEvaluator::evaluate(const Expr& expr) {
             handle_declare(expr.var_name, *expr.atom_value);
             break;
         }
+
+        case Expr::READ: {
+            if (expr.var_name.empty() || !expr.atom_value){
+                throw std::runtime_error("Invalid READ!");
+            }
+            handle_read(expr.var_name, *expr.atom_value);
+            break;
+        }
+
+        case Expr::WRITE:{
+            //idk how to validate this actually, this is temporary lang
+            if (!expr.lhs->number_value > heap_memory.size()) {
+                throw std::runtime_error("Invalid WRITE!");
+            }
+            handle_write(*expr.lhs, *expr.rhs);
+            break;
+        }
         
         case Expr::CALL: {
             if (expr.var_name == "PRINT") {
@@ -143,6 +160,33 @@ void InstructionEvaluator::handle_declare(const std::string& var_name, const Ato
     } else {
         throw std::runtime_error("DECLARE requires numeric value or variable reference");
     }
+}
+
+void InstructionEvaluator::handle_read(const std::string& var_name, const Atom& rhs){
+    //read the two bytes (uint16_t...)
+    uint8_t low = heap_memory[rhs.number_value]; //lower word
+    uint8_t high = heap_memory[rhs.number_value+1]; //upper word
+
+    //combine two bytes to form uint16
+    uint16_t combined = static_cast<uint16_t>(high) << 8;
+    combined |= static_cast<uint16_t>(low);
+
+    //assign to a variable
+    symbol_table[var_name] = combined;
+};
+
+void InstructionEvaluator::handle_write(const Atom& address, const Atom& rhs){
+    
+    //TODO: ADD VALIDATION HERE IF NEED
+
+    uint16_t writing_lower = address.number_value; //we will write here lsb
+    uint16_t writing_higher = address.number_value + 1; //we will write here msb
+    uint16_t to_write = (rhs.type == Atom::NAME) ? resolve_atom_value(rhs) : rhs.number_value; //this is what we will write
+
+    heap_memory[writing_lower] = static_cast<uint8_t>(to_write);
+    heap_memory[writing_higher] = static_cast<uint8_t>(to_write >> 8);
+
+    
 }
 
 std::string InstructionEvaluator::handle_print(const Atom& arg, const std::string& process_name) {

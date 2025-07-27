@@ -119,39 +119,41 @@ bool PCB::executeCurrentInstruction() {
       setSleepCycles(cycles);
       return true;
     }
+    
+    //WHY ARE WE IMPLEMENTING THESE FUNCTIONS HERE HERE?
+    //if (instr.type == Expr::READ){
+    //  if (symbol_table_size >= symbol_table_limit) {
+    //    throw std::runtime_error("Symbol table limit reached"); 
+    //    return true;
+    //  }
+    //  else if (instr.atom_value->number_value >= heap_memory.size()) {
+    //    throw std::runtime_error("Heap address out of bounds");
+    //    return true;
+    //    // violation error and then shut down the process
+    //  } else {
+    //    // check if logic is good
+    //    symbol_table[instr.var_name] = heap_memory[instr.atom_value->number_value];
+    //    Atom temp_atom("READ operation: " + instr.var_name + " = " + std::to_string(symbol_table[instr.var_name]), Atom::STRING);
+    //    symbol_table_size++;
+    //    evaluator->handle_print(temp_atom, processName);
+    //    return true;
+    //  }
+    //}
 
-    if (instr.type == Expr::READ){
-      if (symbol_table_size >= symbol_table_limit) {
-        throw std::runtime_error("Symbol table limit reached"); 
-        return true;
-      }
-      else if (instr.atom_value->number_value >= heap_memory.size()) {
-        throw std::runtime_error("Heap address out of bounds");
-        return true;
-        // violation error and then shut down the process
-      } else {
-        // check if logic is good
-        symbol_table[instr.var_name] = heap_memory[instr.atom_value->number_value];
-        Atom temp_atom("READ operation: " + instr.var_name + " = " + std::to_string(symbol_table[instr.var_name]), Atom::STRING);
-        symbol_table_size++;
-        evaluator->handle_print(temp_atom, processName);
-        return true;
-      }
-    }
-
-    if (instr.type == Expr::WRITE) {
-      // check if heap address is valid
-      if (instr.lhs->number_value >= heap_memory.size()) {
-        throw std::runtime_error("Heap address out of bounds");
-        return true;
-        // violation error and then shut down the process
-      }
-      // check if logic is good
-      heap_memory[instr.lhs->number_value] = instr.rhs->number_value;
-      Atom temp_atom("WRITE operation: " + std::to_string(instr.lhs->number_value) + " = " + std::to_string(instr.rhs->number_value), Atom::STRING);
-      evaluator->handle_print(temp_atom, processName);
-      return true;
-    }    
+    //if (instr.type == Expr::WRITE) {
+    //  // check if heap address is valid
+    //  if (instr.lhs->number_value >= heap_memory.size()) {
+    //    throw std::runtime_error("Heap address out of bounds");
+    //    return true;
+    //    // violation error and then shut down the process
+    //  }
+    //  // check if logic is good
+    //  heap_memory[instr.lhs->number_value] = instr.rhs->number_value;
+    //  Atom temp_atom("WRITE operation: " + std::to_string(instr.lhs->number_value) + " = " + std::to_string(instr.rhs->number_value), Atom::STRING);
+    //  evaluator->handle_print(temp_atom, processName);
+    //  return true;
+    //}    
+    
     
     if (instr.type == Expr::CALL && instr.var_name == "PRINT") {
         if (instr.atom_value) { 
