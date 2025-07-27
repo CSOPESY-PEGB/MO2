@@ -111,14 +111,25 @@ void InstructionEvaluator::evaluate_program(const std::vector<Expr>& program) {
     }
 }
 
+//I changed this since now variables are stored in the symbol table and memory;
+//Basic example of how it works say we have 128 bytes in memory right?
+//Top 64 bits are allocated to the symbol table 0x40 - 0x80
+//Our symbol table now stores {variable_name : address} instead of previous {variable_name : value}
+//now resolve atom value basically goes heap_memory[symbol_table[variable_name]]
 uint16_t InstructionEvaluator::resolve_atom_value(const Atom& atom) {
     switch (atom.type) {
         case Atom::NAME: {
             auto it = symbol_table.find(atom.string_value);
             if (it != symbol_table.end()) {
-                return it->second;
+                uint16_t address = it->second; //address of the variable in the memory 
+
+                //combine the two bits
+                uint16_t combined = static_cast<uint16_t>(heap_memory[address+1]) << 8;
+                combined |= static_cast<uint16_t>(heap_memory[address]);
+
+                return combined;
+
             } else {
-                
                 return 0;
             }
         }
@@ -141,7 +152,13 @@ std::string InstructionEvaluator::print_atom_to_string(const Atom& atom) {
             
             auto it = symbol_table.find(atom.string_value);
             if (it != symbol_table.end()) {
-                return std::to_string(it->second);
+                uint16_t address = it->second; //address of the variable in the memory 
+                
+                //combine the two bits
+                uint16_t combined = static_cast<uint16_t>(heap_memory[address+1]) << 8;
+                combined |= static_cast<uint16_t>(heap_memory[address]);
+
+                return std::to_string(combined);
             } else {
                 return "0"; 
             }
@@ -151,18 +168,56 @@ std::string InstructionEvaluator::print_atom_to_string(const Atom& atom) {
     }
 }
 
+
+
 void InstructionEvaluator::handle_declare(const std::string& var_name, const Atom& value) {
+
+    //check first if we have exceeded 32 variables
+    if(symbol_table.size() >=32 && !symbol_table.contains(var_name)){
+        throw std::runtime_error("EXCEEDED variables");
+    }
+
+    int16_t mem_lower;
+    int16_t mem_higher;
+
+    if(symbol_table.contains(var_name)){
+        mem_lower = symbol_table[var_name];
+        mem_higher = mem_lower + 1;
+    }else {
+        //basically get the lower and upper half of the address
+        size_t index = symbol_table.size() + 1; //index of variable being declared
+        mem_lower = heap_memory.size() - (index * 2);
+        mem_higher = mem_lower + 1;
+        symbol_table[var_name] = mem_lower;
+    }
+
+
     if (value.type == Atom::NUMBER) {
-        symbol_table[var_name] = value.number_value;
+        //assign value to the address
+        heap_memory[mem_lower] = static_cast<uint8_t>(value.number_value);
+        heap_memory[mem_higher] = static_cast<uint8_t>(value.number_value >> 8);
+
     } else if (value.type == Atom::NAME) {
-        
-        symbol_table[var_name] = resolve_atom_value(value);
+        uint16_t val = resolve_atom_value(value);
+        heap_memory[mem_lower] = static_cast<uint8_t>(val);
+        heap_memory[mem_higher] = static_cast<uint8_t>(val >> 8);
     } else {
         throw std::runtime_error("DECLARE requires numeric value or variable reference");
     }
+
+    
 }
 
 void InstructionEvaluator::handle_read(const std::string& var_name, const Atom& rhs){
+
+    //check first if we have exceeded 32 variables
+    if(symbol_table.size() >=32 && !symbol_table.contains(var_name)){
+        throw std::runtime_error("EXCEEDED variables");
+    }
+
+    uint16_t mem_lower;
+    uint16_t mem_higher;
+
     //read the two bytes (uint16_t...)
     uint8_t low = heap_memory[rhs.number_value]; //lower word
     uint8_t high = heap_memory[rhs.number_value+1]; //upper word
@@ -172,7 +227,20 @@ void InstructionEvaluator::handle_read(const std::string& var_name, const Atom& 
     combined |= static_cast<uint16_t>(low);
 
     //assign to a variable
-    symbol_table[var_name] = combined;
+    if(symbol_table.contains(var_name)){
+        mem_lower = symbol_table[var_name];
+        mem_higher = mem_lower + 1;
+    }else {
+        //basically get the lower and upper half of the address
+        size_t index = symbol_table.size() + 1; //index of variable being declared
+        mem_lower = heap_memory.size() - (index * 2);
+        mem_higher = mem_lower + 1;
+        symbol_table[var_name] = mem_lower;
+    }
+
+    heap_memory[mem_lower] = low;
+    heap_memory[mem_higher] = high;
+    
 };
 
 void InstructionEvaluator::handle_write(const Atom& address, const Atom& rhs){
@@ -195,7 +263,7 @@ std::string InstructionEvaluator::handle_print(const Atom& arg, const std::strin
     auto now = std::chrono::system_clock::now();
     auto truncated_time = std::chrono::time_point_cast<std::chrono::seconds>(now);
     std::string timestamp = std::format("{:%m/%d/%Y %I:%M:%S %p}", truncated_time);
-
+ 
     std::string log_entry;
     if (!process_name.empty()) {
         log_entry = std::format("({}) \"{}\"", timestamp, output);
@@ -214,31 +282,65 @@ void InstructionEvaluator::handle_sleep(const Atom& duration) {
 }
 
 void InstructionEvaluator::handle_add(const std::string& var, const Atom& lhs, const Atom& rhs) {
+    // Step 1: Resolve operand values (this part was already correct)
     uint16_t left_val = resolve_atom_value(lhs);
     uint16_t right_val = resolve_atom_value(rhs);
     
+    // Step 2: Perform calculation (this part was already correct)
+    uint32_t result32 = static_cast<uint32_t>(left_val) + static_cast<uint32_t>(right_val);
+    uint16_t result = (result32 > 65535) ? 65535 : static_cast<uint16_t>(result32);
     
-    uint32_t result = static_cast<uint32_t>(left_val) + static_cast<uint32_t>(right_val);
-    if (result > 65535) {
-        result = 65535; 
+    // Step 3: Get or create the address for the destination variable.
+    // (This reuses the same logic from your other functions)
+    uint16_t dest_address;
+    if (symbol_table.contains(var)) {
+        dest_address = symbol_table[var];
+    } else {
+        // You could also throw an error here if you want ADD to only work on existing variables.
+        // For now, we'll allow it to create a new variable.
+        if (symbol_table.size() >= 32) {
+            throw std::runtime_error("Variable limit reached, cannot create: " + var);
+        }
+        size_t index = symbol_table.size() + 1;
+        dest_address = heap_memory.size() - (index * 2);
+        symbol_table[var] = dest_address;
     }
-    
-    symbol_table[var] = static_cast<uint16_t>(result);
+
+    // Step 4: Write the result to the destination address in memory (Little-Endian).
+    // THIS IS THE KEY FIX.
+    heap_memory[dest_address]     = static_cast<uint8_t>(result);
+    heap_memory[dest_address + 1] = static_cast<uint8_t>(result >> 8);
 }
 
 void InstructionEvaluator::handle_sub(const std::string& var, const Atom& lhs, const Atom& rhs) {
+    // Step 1: Resolve operand values (this part was already correct)
     uint16_t left_val = resolve_atom_value(lhs);
     uint16_t right_val = resolve_atom_value(rhs);
     
+    // Step 2: Perform calculation (this part was already correct)
+    uint32_t result32 = static_cast<uint32_t>(left_val) - static_cast<uint32_t>(right_val);
+    uint16_t result = (result32 > 65535) ? 65535 : static_cast<uint16_t>(result32);
     
-    uint16_t result;
-    if (left_val >= right_val) {
-        result = left_val - right_val;
+    // Step 3: Get or create the address for the destination variable.
+    // (This reuses the same logic from your other functions)
+    uint16_t dest_address;
+    if (symbol_table.contains(var)) {
+        dest_address = symbol_table[var];
     } else {
-        result = 0; 
+        // You could also throw an error here if you want ADD to only work on existing variables.
+        // For now, we'll allow it to create a new variable.
+        if (symbol_table.size() >= 32) {
+            throw std::runtime_error("Variable limit reached, cannot create: " + var);
+        }
+        size_t index = symbol_table.size() + 1;
+        dest_address = heap_memory.size() - (index * 2);
+        symbol_table[var] = dest_address;
     }
-    
-    symbol_table[var] = result;
+
+    // Step 4: Write the result to the destination address in memory (Little-Endian).
+    // THIS IS THE KEY FIX.
+    heap_memory[dest_address]     = static_cast<uint8_t>(result);
+    heap_memory[dest_address + 1] = static_cast<uint8_t>(result >> 8);
 }
 
 void InstructionEvaluator::handle_for(const std::vector<Expr>& body, const Atom& count) {
