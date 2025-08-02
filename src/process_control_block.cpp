@@ -59,26 +59,26 @@ PCB::PCB(std::string procName, const std::vector<Expr>& instrs, size_t memory_si
           this->heap_memory,
           this->symbol_table,
           this->output_log,
-          this->processName 
+          this->processName
       ))
 {
   evaluator->handle_declare("x", Atom(static_cast<uint16_t>(0)));
 }
 
-PCB::PCB(std::string procName, const std::vector<Expr>& instrs, size_t memory_size)
-    : processID(next_pid++),
-      processName(std::move(procName)),
-      currentInstruction(0),
-      totalInstructions(instrs.size()),
-      creationTime(std::chrono::system_clock::now()),
-      assignedCore(std::nullopt),
-      sleepCyclesRemaining(0),
-      instructions(instrs),
-      heap_memory(memory_size - (instrs.size() - 64), 0)  
-{
-  evaluator.handle_declare("x", Atom(static_cast<uint16_t>(0)));
-}
-
+//
+// PCB::PCB(std::string procName, const std::vector<Expr>& instrs, size_t memory_size)
+//     : processID(next_pid++),
+//       processName(std::move(procName)),
+//       currentInstruction(0),
+//       totalInstructions(instrs.size()),
+//       creationTime(std::chrono::system_clock::now()),
+//       assignedCore(std::nullopt),
+//       sleepCyclesRemaining(0),
+//       instructions(instrs),
+//       heap_memory(memory_size - (instrs.size() - 64), 0)
+// {
+//   evaluator->handle_declare("x", Atom(static_cast<uint16_t>(0)));
+// }
 
 void PCB::step() {
   if (isSleeping()) {
@@ -148,7 +148,7 @@ bool PCB::executeCurrentInstruction() {
         symbol_table[instr.var_name] = heap_memory[instr.atom_value->number_value];
         Atom temp_atom("READ operation: " + instr.var_name + " = " + std::to_string(symbol_table[instr.var_name]), Atom::STRING);
         symbol_table_size++;
-        evaluator.handle_print(temp_atom, processName);
+        evaluator->handle_print(temp_atom, processName);
         return true;
       }
     }
@@ -163,7 +163,7 @@ bool PCB::executeCurrentInstruction() {
       // check if logic is good
       heap_memory[instr.lhs->number_value] = instr.rhs->number_value;
       Atom temp_atom("WRITE operation: " + std::to_string(instr.lhs->number_value) + " = " + std::to_string(instr.rhs->number_value), Atom::STRING);
-      evaluator.handle_print(temp_atom, processName);
+      evaluator->handle_print(temp_atom, processName);
       return true;
     }    
     
