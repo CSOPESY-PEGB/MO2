@@ -279,6 +279,9 @@ void Scheduler::print_status() const {
   std::cout << "Cores used: " << cores_used << "\n";
   std::cout << "Cores available: " << (core_count_ - cores_used) << "\n\n";
 
+  std::cout << "Memory Block Assignments" << std::endl;
+  memory_manager_->generate_memory_report(std::cout);
+
   std::cout
       << "----------------------------------------------------------------\n";
   std::cout << "Running processes:\n";

@@ -25,12 +25,14 @@ public:
     // NEW: Method to check if a process is already in memory.
     // This is a const method because it only reads the memory state.
     bool is_allocated(uint32_t pcb_id) const;
-    void generate_memory_report(const std::string& filename) const;
     void generate_memory_report(std::ostream& out) const;
+
 
 private:
     void coalesce_free_blocks(std::list<MemoryBlock>::iterator newly_freed_block);
     void write_memory_report(std::ostream& out) const; // Internal reusable helper
+    void generate_memory_report(const std::string& filename) const;
+
     std::list<MemoryBlock> memory_map_;
     uint32_t total_memory_size_;
     mutable std::mutex memory_mutex_;
