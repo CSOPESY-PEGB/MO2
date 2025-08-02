@@ -153,7 +153,7 @@ void Scheduler::dispatch(){
             can_run = true;
         } else {
             // It's not in memory, try to allocate it.
-            if (memory_manager_->allocate(process->processID, mem_per_proc_)) {
+            if (memory_manager_->allocate(process->processID, mem_per_proc_, process)) {
                 // Allocation succeeded, so it can run.
                 can_run = true;
             }
@@ -243,7 +243,6 @@ void Scheduler::stop() {
   if(dispatch_thread_.joinable()){
     dispatch_thread_.join();
   }
-
   for (auto& worker : cpu_workers_) {
       worker->stop();
       worker->join();
@@ -262,7 +261,7 @@ void Scheduler::stop() {
 }
 
 void Scheduler::submit_process(std::shared_ptr<PCB> pcb) {
-  { 
+  {
     std::lock_guard<std::mutex> lock(map_mutex_);
     all_processes_map_[pcb->processName] = pcb;
   }
@@ -272,13 +271,18 @@ void Scheduler::submit_process(std::shared_ptr<PCB> pcb) {
 void Scheduler::print_status() const {
   double cpu_utilization;
   size_t total_cores = core_count_;
-  size_t cores_used = active_cores_;
+  size_t cores_used = 0;
+  for (const auto& worker : cpu_workers_) {
+    if (!worker->is_idle()) {
+      ++cores_used;
+    }
+  }
   calculate_cpu_utilization(total_cores, cores_used, cpu_utilization);
 
   std::cout << "CPU utilization: " << static_cast<int>(cpu_utilization) << "%\n";
   std::cout << "Cores used: " << cores_used << "\n";
   std::cout << "Cores available: " << (core_count_ - cores_used) << "\n\n";
-
+  memory_manager_->generate_memory_report(std::cout);
   std::cout
       << "----------------------------------------------------------------\n";
   std::cout << "Running processes:\n";

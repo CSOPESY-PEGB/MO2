@@ -103,6 +103,10 @@ bool create_process(const std::string& process_name, Scheduler& scheduler, Confi
     std::cerr << "Error: Process '" << process_name << "' already exists. Please choose a unique name." << std::endl;
     return false; // Abort the creation
   }
+  if (memory_size > config.max_overall_mem) {
+    std::cerr << "Error: Process exceeds overall memory limit.\n";
+    return false;
+  }
 
   InstructionGenerator generator;
 
@@ -211,9 +215,14 @@ std::string transformInstructions(const std::string& input) {
 }
 
 
-void create_process_from_string(const std::string& process_name, size_t memory, const std::string& instructions, Scheduler& scheduler){
+void create_process_from_string(const std::string& process_name, size_t memory, const std::string& instructions, Config& config, Scheduler& scheduler){
   //remove starting and ending "
-  //unescape all \" 
+  //unescape all \"
+  if (memory > config.max_overall_mem) {
+    std::cerr << "Error: Process exceeds overall memory limit.\n";
+    return;
+  }
+
   std::string input = transformInstructions(instructions);
   std::vector<Expr> program;
   ParseResult result = InstructionParser::parse_program(input, program);
@@ -223,7 +232,7 @@ void create_process_from_string(const std::string& process_name, size_t memory, 
     std::cerr << "Remaining input: " << result.remaining << std::endl;
     return;
   }
-  
+
   auto pcb = std::make_shared<PCB>(process_name, program, memory);
   
   std::cout << "Created process '" << process_name << " with " << memory << "bytes of memory." << std::endl;
@@ -326,7 +335,7 @@ void screen(std::vector<std::string>& args, Scheduler& scheduler, Config& config
         std::cout << "Please input a valid number for process_memory_size" << std::endl;
       }
 
-      create_process_from_string(args[1], num, args[3], scheduler);
+      create_process_from_string(args[1], num, args[3], config,scheduler);
 
     break;
     case ScreenCommand::Unknown:
