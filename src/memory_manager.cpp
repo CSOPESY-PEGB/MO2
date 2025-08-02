@@ -24,10 +24,11 @@ bool MemoryManager::allocate(uint32_t pcb_id, uint32_t size,
             if (it->size > size) {
                 uint32_t remaining_size = it->size - size;
                 uint32_t new_block_start = it->start_address + size;
-                MemoryBlock new_free_block = {new_block_start, remaining_size, true, 0, pcb};
+                MemoryBlock new_free_block = {new_block_start, remaining_size, true, 0, nullptr};
                 it->size = size;
                 it->is_free = false;
                 it->pcb_id = pcb_id;
+                it->pcb_block = pcb;
                 memory_map_.insert(std::next(it), new_free_block);
             } else {
                 it->is_free = false;
@@ -116,7 +117,11 @@ void MemoryManager::write_memory_report(std::ostream& out) const {
     const auto& block = *it;
     if (!block.is_free) {
       out << block.start_address + block.size << "\n";
-      out << std::format("P{:02d} | {}\n", block.pcb_id, block.pcb_block->processName);
+      if (block.pcb_block) {
+        out << std::format("P{:02d} | {}\n", block.pcb_id, block.pcb_block->processName);
+      } else {
+        out << std::format("P{:02d} | [null PCB]\n", block.pcb_id);
+      }
       out << block.start_address << "\n\n";
     }
   }
