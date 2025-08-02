@@ -84,40 +84,46 @@ bool MemoryManager::is_allocated(uint32_t pcb_id) const {
 
 
 void MemoryManager::write_memory_report(std::ostream& out) const {
-    std::lock_guard<std::mutex> lock(memory_mutex_);
+  std::lock_guard<std::mutex> lock(memory_mutex_);
 
-    auto now = std::chrono::time_point_cast<std::chrono::seconds>(std::chrono::system_clock::now());
-    out << "Timestamp: " << std::format("{:%m/%d/%Y %I:%M:%S %p}", now) << "\n";
+  auto now = std::chrono::time_point_cast<std::chrono::seconds>(std::chrono::system_clock::now());
+  out << "Timestamp: " << std::format("{:%m/%d/%Y %I:%M:%S %p}", now) << "\n";
 
-    size_t procs_in_mem = 0;
-    uint32_t external_frag_bytes = 0;
-    for (const auto& block : memory_map_) {
-        if (!block.is_free) {
-            procs_in_mem++;
-        } else {
-            external_frag_bytes += block.size;
-        }
+  size_t procs_in_mem = 0;
+  uint32_t external_frag_bytes = 0;
+  uint32_t total_used_bytes = 0;
+
+  for (const auto& block : memory_map_) {
+    if (!block.is_free) {
+      procs_in_mem++;
+      total_used_bytes += block.size;
+    } else {
+      external_frag_bytes += block.size;
     }
+  }
 
-    out << "Number of processes in memory: " << procs_in_mem << "\n";
-    out << "Total external fragmentation in KB: " << std::fixed << std::setprecision(2)
-        << (static_cast<double>(external_frag_bytes) / 1024.0) << "\n\n";
+  double utilization = 100.0 * static_cast<double>(total_used_bytes) / static_cast<double>(total_memory_size_);
 
-    out << std::format("----end---- = {}\n", total_memory_size_);
+  out << "Number of processes in memory: " << procs_in_mem << "\n";
+  out << "Total external fragmentation in KB: " << std::fixed << std::setprecision(2)
+      << (static_cast<double>(external_frag_bytes) / 1024.0) << "\n";
+  out << "Memory used (bytes): " << total_used_bytes << " / " << total_memory_size_ << "\n";
+  out << "Memory utilization: " << std::fixed << std::setprecision(2) << utilization << "%\n\n";
 
-    for (auto it = memory_map_.rbegin(); it != memory_map_.rend(); ++it) {
-        const auto& block = *it;
-        if (!block.is_free) {
-            out << block.start_address + block.size << "\n";
+  out << std::format("----end---- = {}\n", total_memory_size_);
 
-            out << std::format("P{:02d} | {}\n", block.pcb_id, block.pcb_block->processName);
-            out << block.start_address << "\n\n";
-
-        }
+  for (auto it = memory_map_.rbegin(); it != memory_map_.rend(); ++it) {
+    const auto& block = *it;
+    if (!block.is_free) {
+      out << block.start_address + block.size << "\n";
+      out << std::format("P{:02d} | {}\n", block.pcb_id, block.pcb_block->processName);
+      out << block.start_address << "\n\n";
     }
+  }
 
-    out << std::format("----start---- = {}\n", 0);
+  out << std::format("----start---- = {}\n", 0);
 }
+
 
 void MemoryManager::generate_memory_report(const std::string& filename) const {
     std::ofstream report_file(filename);
