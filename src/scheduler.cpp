@@ -16,107 +16,108 @@
 namespace osemu {
 
 class Scheduler::CPUWorker {
- public:
-  CPUWorker(int core_id, Scheduler& scheduler)
+  public:
+    CPUWorker(int core_id, Scheduler& scheduler)
       : core_id_(core_id), scheduler_(scheduler) {}
 
-  void start() { thread_ = std::thread(&CPUWorker::run, this); }
-  void join(){
-    if(thread_.joinable()){
-      thread_.join();
+    void start() { thread_ = std::thread(&CPUWorker::run, this); }
+    
+    void join(){
+      if(thread_.joinable()){
+        thread_.join();
+      }
     }
-  }
-  void stop(){
-    shutdown_requested_ = true;
-    cv_.notify_one();
-  }
-  
-  
-  void assign_task(std::shared_ptr<PCB> pcb, int time_quantum){
-    std::lock_guard<std::mutex> lock(mutex_);
-    time_quantum_ = time_quantum;
-    current_task_ = std::move(pcb);
-    idle_ = false;
-
-    cv_.notify_one(); 
-  };
-
-  bool is_idle() const { return idle_.load(); };
-
- private:
-
-   void run(){
-    while(scheduler_.running_.load()){
-      std::unique_lock<std::mutex> lock(mutex_);
-
-      cv_.wait(lock, [this] {
-        return shutdown_requested_.load() || !idle_.load();
-      });
-      
-      if (shutdown_requested_.load()){
-        break;
-      }
-
-      if (!current_task_) {
-        idle_ = true;
-        continue;
-      }
-
-      lock.unlock();
-      execute_process(current_task_, time_quantum_);
-
-      current_task_ = nullptr;
-      idle_ = true;
+    
+    void stop(){
+      shutdown_requested_ = true;
+      cv_.notify_one();
     }
-  }
+    
+    void assign_task(std::shared_ptr<PCB> pcb, int time_quantum){
+      std::lock_guard<std::mutex> lock(mutex_);
+      time_quantum_ = time_quantum;
+      current_task_ = std::move(pcb);
+      idle_ = false;
+      cv_.notify_one(); 
+    };
 
-  void execute_process(std::shared_ptr<PCB> pcb, int tq) {
-    pcb->assignedCore = core_id_;
-    scheduler_.move_to_running(pcb);
-    size_t first_tick = scheduler_.get_ticks();
-    size_t last_tick = first_tick; 
-    int steps = 0;
-    while((tq == -1 || last_tick - first_tick < tq) && !pcb->isComplete()){
-      if(!scheduler_.running_.load() || shutdown_requested_.load()){
-        break;
-      }
+    bool is_idle() const { return idle_.load(); };
 
-      {
-          std::unique_lock<std::mutex> lock(scheduler_.clock_mutex_); 
-          
-          scheduler_.clock_cv_.wait(lock, [&](){
-                return scheduler_.get_ticks() > last_tick || !scheduler_.running_.load() || shutdown_requested_.load();
-          });
-      }
-      
-      if(!scheduler_.running_.load() || shutdown_requested_.load()) break;
-  
-      if(scheduler_.get_ticks() - last_tick >= scheduler_.delay_per_exec_){
-        pcb->step(); 
-      }
-      last_tick = scheduler_.get_ticks();
-    }
+  private:
+    void run(){
+      while(scheduler_.running_.load()){
+        std::unique_lock<std::mutex> lock(mutex_);
 
-    if(pcb->isComplete()){
-        pcb->finishTime = std::chrono::system_clock::now();
-        if (scheduler_.memory_manager_) {
-            scheduler_.memory_manager_->free(pcb->processID);
+        cv_.wait(lock, [this] {
+          return shutdown_requested_.load() || !idle_.load();
+        });
+        
+        if (shutdown_requested_.load()){
+          break;
         }
-        scheduler_.move_to_finished(pcb);
-      } else {
-        scheduler_.move_to_ready(pcb);
-      }
-  }
 
-  int core_id_;
-  std::thread thread_;
-  Scheduler& scheduler_;
-  std::atomic<bool> idle_{true};
-  std::atomic<bool> shutdown_requested_{false};
-  std::shared_ptr<PCB> current_task_;
-  int time_quantum_;
-  std::mutex mutex_;
-  std::condition_variable cv_;
+        if (!current_task_) {
+          idle_ = true;
+          continue;
+        }
+
+        lock.unlock();
+        execute_process(current_task_, time_quantum_);
+
+        current_task_ = nullptr;
+        idle_ = true;
+      }
+    }
+
+    void execute_process(std::shared_ptr<PCB> pcb, int tq) {
+      pcb->assignedCore = core_id_;
+      scheduler_.move_to_running(pcb);
+      size_t first_tick = scheduler_.get_ticks();
+      size_t last_tick = first_tick; 
+      int steps = 0;
+      
+      while((tq == -1 || last_tick - first_tick < tq) && !pcb->isComplete()){
+        if(!scheduler_.running_.load() || shutdown_requested_.load()){
+          break;
+        }
+
+        {
+            std::unique_lock<std::mutex> lock(scheduler_.clock_mutex_); 
+            
+            scheduler_.clock_cv_.wait(lock, [&](){
+                  return scheduler_.get_ticks() > last_tick || !scheduler_.running_.load() || shutdown_requested_.load();
+            });
+        }
+        
+        if(!scheduler_.running_.load() || shutdown_requested_.load()) break;
+    
+        if(scheduler_.get_ticks() - last_tick >= scheduler_.delay_per_exec_){
+          pcb->step(); 
+          steps++;
+        }
+        last_tick = scheduler_.get_ticks();
+      }
+
+      if(pcb->isComplete()){
+          pcb->finishTime = std::chrono::system_clock::now();
+          if (scheduler_.memory_manager_) {
+              scheduler_.memory_manager_->free(pcb->processID);
+          }
+          scheduler_.move_to_finished(pcb);
+        } else {
+          scheduler_.move_to_ready(pcb);
+        }
+    }
+
+    int core_id_;
+    std::thread thread_;
+    Scheduler& scheduler_;
+    std::atomic<bool> idle_{true};
+    std::atomic<bool> shutdown_requested_{false};
+    std::shared_ptr<PCB> current_task_;
+    int time_quantum_;
+    std::mutex mutex_;
+    std::condition_variable cv_;
 };
 
 Scheduler::Scheduler() : running_(false), batch_generating_(false), process_counter_(0) {}
@@ -133,7 +134,7 @@ Scheduler::~Scheduler() {
 void Scheduler::dispatch(){
   while(running_.load()){
     std::shared_ptr<PCB> process;
-
+    
     if(!ready_queue_.wait_and_pop(process)){
       if(!running_.load()) break;
       else continue;
@@ -162,7 +163,6 @@ void Scheduler::dispatch(){
     
     if (!can_run) {
         // Defer the process if it couldn't be run.
-        // std::cout << "PID " << process->processID << " deferred due to lack of memory. Returning to queue." << std::endl;
         ready_queue_.push(std::move(process));
         continue;
     }
@@ -187,7 +187,6 @@ void Scheduler::dispatch(){
           }
         }
       }
-      
     }
   }
 }
@@ -214,6 +213,11 @@ void Scheduler::start(const Config& config) {
   delay_per_exec_ = config.delayCyclesPerInstruction;
   quantum_cycles_ = config.quantumCycles;
   algorithm_ = config.scheduler;
+  core_count_ = config.cpuCount;
+  maxOverallMemory = config.maxOverallMemory;
+  memPerFrame = config.memPerFrame;
+  minMemPerProc = config.minMemPerProc;
+  maxMemPerProc = config.maxMemPerProc;
 
   memory_manager_ = std::make_unique<MemoryManager>(config.max_overall_mem);
   mem_per_proc_ = config.min_mem_per_proc;
@@ -222,20 +226,16 @@ void Scheduler::start(const Config& config) {
     cpu_workers_.push_back(std::make_unique<CPUWorker>(i, *this));
     cpu_workers_.back()->start();
   }
+
   std::cout << "Scheduler started with " << config.cpuCount << " cores."
             << std::endl;
 
-  global_clock_thread_ = std::thread(&Scheduler::global_clock, this);
   dispatch_thread_ = std::thread(&Scheduler::dispatch, this);
+  global_clock_thread_ = std::thread(&Scheduler::global_clock, this);
 }
 
 void Scheduler::stop() {
   running_ = false;
-
-  for (auto& worker : cpu_workers_){
-    worker->stop();
-  }
-
   ready_queue_.shutdown();
 
   clock_cv_.notify_all();
@@ -245,6 +245,7 @@ void Scheduler::stop() {
   }
 
   for (auto& worker : cpu_workers_) {
+      worker->stop();
       worker->join();
   }
 
@@ -269,14 +270,14 @@ void Scheduler::submit_process(std::shared_ptr<PCB> pcb) {
 }
 
 void Scheduler::print_status() const {
-  size_t total_cores;
-  size_t cores_used;
   double cpu_utilization;
+  size_t total_cores = core_count_;
+  size_t cores_used = active_cores_;
   calculate_cpu_utilization(total_cores, cores_used, cpu_utilization);
 
   std::cout << "CPU utilization: " << static_cast<int>(cpu_utilization) << "%\n";
   std::cout << "Cores used: " << cores_used << "\n";
-  std::cout << "Cores available: " << (total_cores - cores_used) << "\n\n";
+  std::cout << "Cores available: " << (core_count_ - cores_used) << "\n\n";
 
   std::cout
       << "----------------------------------------------------------------\n";
@@ -337,9 +338,6 @@ void Scheduler::move_to_ready(std::shared_ptr<PCB> pcb) {
 }
 
 void Scheduler::start_batch_generation(const Config& config) {
-
-
-
   if (batch_generating_.load()) {
     std::cout << "Batch process generation is already running." << std::endl;
     return;
@@ -365,6 +363,13 @@ void Scheduler::start_batch_generation(const Config& config) {
          } while (find_process_by_name(process_name) != nullptr);
        } 
 
+        // Generate a random memory size for the process
+        std::random_device rd;                         
+        std::mt19937 gen(rd());                        
+        std::uniform_int_distribution<> dist(minMemPerProc, maxMemPerProc); 
+
+        size_t memory_size = dist(gen);
+       
         auto instructions = instruction_generator_.generateRandomProgram(
           config.minInstructions, 
           config.maxInstructions, 
@@ -372,11 +377,17 @@ void Scheduler::start_batch_generation(const Config& config) {
           config.min_mem_per_proc,
           config.max_mem_per_proc
         );
-        
-        auto pcb = std::make_shared<PCB>(process_name, instructions);
-        submit_process(pcb);
+       
+        // Check if the process can fit in the memory size allocated
+        if (instructions.size() + 64 > memory_size) {
+          std::cerr << "Error: Process " << process_name
+                    << " has too many instructions for the allocated memory size."
+                    << std::endl;  
+        } else {
+          auto pcb = std::make_shared<PCB>(process_name, instructions, memory_size);
+          submit_process(pcb);
+        }
       }
-      
     }
   });
   
@@ -404,13 +415,6 @@ void Scheduler::stop_batch_generation() {
 void Scheduler::calculate_cpu_utilization(size_t& total_cores,
                                           size_t& cores_used,
                                           double& cpu_utilization) const {
-  total_cores = cpu_workers_.size();
-  cores_used = 0;
-
-  {
-    std::lock_guard<std::mutex> lock(running_mutex_);
-    cores_used = running_processes_.size();
-  }
 
   cpu_utilization =
       total_cores > 0 ? (static_cast<double>(cores_used) / total_cores) * 100.0
@@ -421,12 +425,11 @@ void Scheduler::generate_report(const std::string& filename) const {
   std::ofstream report_file(filename);
   
   if (!report_file.is_open()) {
-    // std::cerr << "Failed to create report file: " << filename << std::endl;
     return;
   }
 
-  size_t total_cores;
-  size_t cores_used;
+  size_t total_cores = core_count_;
+  size_t cores_used = active_cores_;
   double cpu_utilization;
   calculate_cpu_utilization(total_cores, cores_used, cpu_utilization);
 
