@@ -9,7 +9,7 @@
 namespace osemu {
 
 Config::Config(uint32_t cpu, SchedulingAlgorithm sched, uint32_t quantum,
-               uint32_t freq, uint32_t minIns, uint32_t maxIns, uint32_t delay)
+               uint32_t freq, uint32_t minIns, uint32_t maxIns, uint32_t delay, uint32_t memPerFrame, uint32_t minMemPerProc, uint32_t maxMemPerProc, uint32_t maxOverallMemory)
     : cpuCount{std::clamp(cpu, 1u, 128u)},
       scheduler{sched},
       quantumCycles{
@@ -20,7 +20,12 @@ Config::Config(uint32_t cpu, SchedulingAlgorithm sched, uint32_t quantum,
           std::clamp(minIns, 1u, std::numeric_limits<uint32_t>::max())},
       maxInstructions{std::clamp(maxIns, minInstructions,
                                  std::numeric_limits<uint32_t>::max())},
-      delayCyclesPerInstruction{delay} {
+      delayCyclesPerInstruction{delay},
+      maxOverallMemory{std::clamp(maxOverallMemory, 1u, std::numeric_limits<uint32_t>::max())},
+      memPerFrame{std::clamp(memPerFrame, 1u, std::numeric_limits<uint32_t>::max())},
+      minMemPerProc{std::clamp(minMemPerProc, 1u, std::numeric_limits<uint32_t>::max())},
+      maxMemPerProc{std::clamp(maxMemPerProc, minMemPerProc,
+                               std::numeric_limits<uint32_t>::max())} {
   if (scheduler != SchedulingAlgorithm::RoundRobin) {
     quantumCycles = 1;
   }
