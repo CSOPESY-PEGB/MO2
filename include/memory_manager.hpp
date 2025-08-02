@@ -7,6 +7,8 @@
 #include <mutex>
 #include <string>
 
+#include "process_control_block.hpp"
+
 namespace osemu {
 
 struct MemoryBlock {
@@ -14,12 +16,13 @@ struct MemoryBlock {
     uint32_t size;
     bool is_free;
     uint32_t pcb_id;
+    std::shared_ptr<PCB> pcb_block;
 };
 
 class MemoryManager {
 public:
     explicit MemoryManager(uint32_t total_size);
-    bool allocate(uint32_t pcb_id, uint32_t size);
+    bool allocate(uint32_t pcb_id, uint32_t size, std::shared_ptr<PCB> pcb_block);
     void free(uint32_t pcb_id);
 
     // NEW: Method to check if a process is already in memory.
@@ -27,10 +30,10 @@ public:
     bool is_allocated(uint32_t pcb_id) const;
     void generate_memory_report(const std::string& filename) const;
     void generate_memory_report(std::ostream& out) const;
+    void write_memory_report(std::ostream& out) const; // Internal reusable helper
 
 private:
     void coalesce_free_blocks(std::list<MemoryBlock>::iterator newly_freed_block);
-    void write_memory_report(std::ostream& out) const; // Internal reusable helper
     std::list<MemoryBlock> memory_map_;
     uint32_t total_memory_size_;
     mutable std::mutex memory_mutex_;

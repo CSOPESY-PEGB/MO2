@@ -16,14 +16,15 @@ MemoryManager::MemoryManager(uint32_t total_size)
     std::cout << "Memory Manager initialized with " << total_size << " bytes." << std::endl;
 }
 
-bool MemoryManager::allocate(uint32_t pcb_id, uint32_t size) {
+bool MemoryManager::allocate(uint32_t pcb_id, uint32_t size,
+                             std::shared_ptr<PCB> pcb) {
     std::lock_guard<std::mutex> lock(memory_mutex_);
     for (auto it = memory_map_.begin(); it != memory_map_.end(); ++it) {
         if (it->is_free && it->size >= size) {
             if (it->size > size) {
                 uint32_t remaining_size = it->size - size;
                 uint32_t new_block_start = it->start_address + size;
-                MemoryBlock new_free_block = {new_block_start, remaining_size, true, 0};
+                MemoryBlock new_free_block = {new_block_start, remaining_size, true, 0, pcb};
                 it->size = size;
                 it->is_free = false;
                 it->pcb_id = pcb_id;
@@ -31,6 +32,7 @@ bool MemoryManager::allocate(uint32_t pcb_id, uint32_t size) {
             } else {
                 it->is_free = false;
                 it->pcb_id = pcb_id;
+                it->pcb_block = pcb;
             }
             // std::cout << "Allocated " << size << " bytes for PID " << pcb_id << " at address " << it->start_address << std::endl;
             return true;
@@ -47,6 +49,7 @@ void MemoryManager::free(uint32_t pcb_id) {
             // std::cout << "Freeing memory for PID " << pcb_id << " at address " << it->start_address << std::endl;
             it->is_free = true;
             it->pcb_id = 0;
+            it->pcb_block = nullptr;
             //coalesce_free_blocks(it);
             return;
         }
@@ -106,7 +109,8 @@ void MemoryManager::write_memory_report(std::ostream& out) const {
         const auto& block = *it;
         if (!block.is_free) {
             out << block.start_address + block.size << "\n";
-            out << std::format("P{:02d}\n", block.pcb_id);
+
+            out << std::format("P{:02d} | {}\n", block.pcb_id, block.pcb_block->processName);
             out << block.start_address << "\n\n";
 
         }
