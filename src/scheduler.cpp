@@ -15,110 +15,90 @@
 
 namespace osemu {
 
-class Scheduler::CPUWorker {
-  public:
-    CPUWorker(int core_id, Scheduler& scheduler)
-      : core_id_(core_id), scheduler_(scheduler) {}
+Scheduler::CPUWorker::CPUWorker(int core_id, Scheduler& scheduler)
+    : core_id_(core_id), scheduler_(scheduler) {}
 
-    void start() { thread_ = std::thread(&CPUWorker::run, this); }
+void Scheduler::CPUWorker::start() { thread_ = std::thread(&Scheduler::CPUWorker::run, this); }
+
+void Scheduler::CPUWorker::join(){
+  if(thread_.joinable()){
+    thread_.join();
+  }
+}
+
+void Scheduler::CPUWorker::stop(){
+  shutdown_requested_ = true;
+  // Notify global barrier CVs to unblock ALL workers so they can exit gracefully.
+  scheduler_.dispatch_go_cv_.notify_all();
+  scheduler_.workers_done_cv_.notify_all();
+}
+
+void Scheduler::CPUWorker::assign_task(std::shared_ptr<PCB> pcb, int time_quantum){
+    std::lock_guard<std::mutex> lock(mutex_); // Protect internal state
+    time_quantum_assigned_ = time_quantum;
+    current_task_ = std::move(pcb);
+    steps_executed_on_this_core_ = 0; // Reset counters for new task
+    ticks_since_last_instruction_ = 0;
     
-    void join(){
-      if(thread_.joinable()){
-        thread_.join();
-      }
-    }
+    // Reset all status flags for the new task
+    has_completed_task_ = false;
+    has_page_faulted_ = false;
+    needs_preemption_ = false;
     
-    void stop(){
-      shutdown_requested_ = true;
-      cv_.notify_one();
-    }
-    
-    void assign_task(std::shared_ptr<PCB> pcb, int time_quantum){
-      std::lock_guard<std::mutex> lock(mutex_);
-      time_quantum_ = time_quantum;
-      current_task_ = std::move(pcb);
-      idle_ = false;
-      cv_.notify_one(); 
-    };
-
-    bool is_idle() const { return idle_.load(); };
-
-  private:
-    void run(){
-      while(scheduler_.running_.load()){
-        std::unique_lock<std::mutex> lock(mutex_);
-
-        cv_.wait(lock, [this] {
-          return shutdown_requested_.load() || !idle_.load();
-        });
-        
-        if (shutdown_requested_.load()){
-          break;
-        }
-
-        if (!current_task_) {
-          idle_ = true;
-          continue;
-        }
-
-        lock.unlock();
-        execute_process(current_task_, time_quantum_);
-
-        current_task_ = nullptr;
-        idle_ = true;
-      }
-    }
-
-    void execute_process(std::shared_ptr<PCB> pcb, int tq) {
-      pcb->assignedCore = core_id_;
-      scheduler_.move_to_running(pcb);
-      size_t first_tick = scheduler_.get_ticks();
-      size_t last_tick = first_tick; 
-      int steps = 0;
-      
-      while((tq == -1 || last_tick - first_tick < tq) && !pcb->isComplete()){
-        if(!scheduler_.running_.load() || shutdown_requested_.load()){
-          break;
-        }
-
-        {
-            std::unique_lock<std::mutex> lock(scheduler_.clock_mutex_); 
-            
-            scheduler_.clock_cv_.wait(lock, [&](){
-                  return scheduler_.get_ticks() > last_tick || !scheduler_.running_.load() || shutdown_requested_.load();
-            });
-        }
-        
-        if(!scheduler_.running_.load() || shutdown_requested_.load()) break;
-    
-        if(scheduler_.get_ticks() - last_tick >= scheduler_.delay_per_exec_){
-          pcb->step(); 
-          steps++;
-        }
-        last_tick = scheduler_.get_ticks();
-      }
-
-      if(pcb->isComplete()){
-          pcb->finishTime = std::chrono::system_clock::now();
-          if (scheduler_.memory_manager_) {
-              scheduler_.memory_manager_->free(pcb->processID);
-          }
-          scheduler_.move_to_finished(pcb);
-        } else {
-          scheduler_.move_to_ready(pcb);
-        }
-    }
-
-    int core_id_;
-    std::thread thread_;
-    Scheduler& scheduler_;
-    std::atomic<bool> idle_{true};
-    std::atomic<bool> shutdown_requested_{false};
-    std::shared_ptr<PCB> current_task_;
-    int time_quantum_;
-    std::mutex mutex_;
-    std::condition_variable cv_;
+    idle_ = false; // Mark worker as busy (holding a task)
+    // No cv_.notify_one() here. The run() loop will pick up the change on the next tick's signal.
 };
+
+// `run()` method - Corrected, fully synchronous, always participating in barrier
+void Scheduler::CPUWorker::run(){
+    while(scheduler_.running_.load()){
+        std::unique_lock<std::mutex> barrier_lock(scheduler_.barrier_mutex_);
+
+        // Wait for the Scheduler's "go" signal for this tick.
+        scheduler_.dispatch_go_cv_.wait(barrier_lock, [&]() {
+            return scheduler_.tick_ready_.load() || shutdown_requested_.load() || !scheduler_.running_.load();
+        });
+
+
+        if (shutdown_requested_.load() || !scheduler_.running_.load()){
+            break; // Exit thread if shutdown requested.
+        }
+        
+        barrier_lock.unlock(); // Release global barrier mutex
+
+        std::unique_lock<std::mutex> self_lock(mutex_); // Acquire worker's private mutex
+
+        if (idle_.load()) {
+            // Worker is currently idle (no task assigned). It simply passes through this tick.
+        } else if (current_task_) { // Worker has a task and it's NOT I/O blocked.
+            ticks_since_last_instruction_++;
+            if (ticks_since_last_instruction_ >= scheduler_.delay_per_exec_) {
+                ticks_since_last_instruction_ = 0; // Reset counter for next instruction
+
+                InstructionExecutionInfo info = current_task_->step(); // Execute instruction
+                last_step_info_ = info; // Store this for the Scheduler to inspect
+
+                if (info.result == InstructionResult::PAGE_FAULT) { has_page_faulted_ = true; }
+                else if (info.result == InstructionResult::PROCESS_COMPLETE) { has_completed_task_ = true; }
+                else { // InstructionResult::SUCCESS
+                    steps_executed_on_this_core_++;
+                    if (scheduler_.algorithm_ == SchedulingAlgorithm::RoundRobin &&
+                        time_quantum_assigned_ != -1 && 
+                        steps_executed_on_this_core_ >= time_quantum_assigned_) {
+                        needs_preemption_ = true;
+                    }
+                }
+            }
+        }
+        
+        self_lock.unlock(); // Release worker's own mutex
+
+        std::unique_lock<std::mutex> signal_lock(scheduler_.barrier_mutex_); // Re-acquire global barrier mutex
+        scheduler_.workers_completed_step_count_.fetch_add(1); // Increment global counter
+        scheduler_.workers_done_cv_.notify_one();              // Notify Scheduler
+    }
+}
+
 
 Scheduler::Scheduler() : running_(false), batch_generating_(false), process_counter_(0) {}
 
@@ -131,82 +111,175 @@ Scheduler::~Scheduler() {
   }
 }
 
+
 void Scheduler::dispatch(){
   while(running_.load()){
-    std::shared_ptr<PCB> process;
-    
-    if(!ready_queue_.wait_and_pop(process)){
-      if(!running_.load()) break;
-      else continue;
-    }
+    std::cout << "[DEBUG] DISPATCH LOOP STARTED " << ticks_ << std::endl;
 
-    if(!process){
-      if(!running_.load()) break;
-      else continue;
-    }
-    
-    // Check with the memory manager, the single source of truth.
-    bool can_run = false;
-    if (memory_manager_) {
-        if (memory_manager_->is_allocated(process->processID)) {
-            // It's already in memory, so it can run.
-            can_run = true;
-        } else {
-            // It's not in memory, try to allocate it.
-            if (memory_manager_->allocate(process->processID, mem_per_proc_)) {
-                // Allocation succeeded, so it can run.
-                can_run = true;
-            }
-            // If allocation fails, can_run remains false.
-        }
-    }
-    
-    if (!can_run) {
-        // Defer the process if it couldn't be run.
-        ready_queue_.push(std::move(process));
-        continue;
-    }
-    
-    // If we reach here, the process has memory and is ready for a CPU.
-    bool dispatched = false;
-    while (!dispatched && running_.load()){
-      for (auto& worker: cpu_workers_){
-        if (worker->is_idle()){
-          
-          if (algorithm_ == SchedulingAlgorithm::FCFS) {
-            int remaining_instructions = -1;
-            worker->assign_task(process, remaining_instructions);
-            dispatched = true;
-            break;
-          } else if (algorithm_ == SchedulingAlgorithm::RoundRobin) {
-            int remaining_instructions = process->totalInstructions - process->currentInstruction;
-            int steps_to_run = std::min((int)quantum_cycles_, remaining_instructions);
-            worker->assign_task(process, steps_to_run);
-            dispatched = true;
-            break;
-          }
-        }
-      }
-    }
-  }
-}
+    //this helper function frees cpus with expired time quantum or finished tasks
+    bool one_free = find_idle_cpu(); 
+    //generate one process
+    if(batch_generating_.load() && ticks_ % batch_process_freq_ == 0) generate_process(); 
 
-void Scheduler::global_clock(){
-  while(running_.load()){
+    //if a free cpu exists try to pop, 
+    std::optional<std::shared_ptr<PCB>> process = one_free ? ready_queue_.try_pop() : nullptr; 
+
+    if(process) find_free_cpu_and_assign(*process); //assign process to the free cpu.
+    //signal all cores to run; IMPORTANT; all cores must participate even when idle; this function also blocks until all cores have participated 
+    signal_execute(); 
+
+    //suspend all processes to handle page faults; not ideal in real world system but for this simulation ensures deterministic behavior and no deadlocks
+    memory_manager_->handle_page_faults(); 
+
+    ticks_++;
+    std::cout << "[DEBUG] next tick lets go " << std::endl;
     std::this_thread::sleep_for(std::chrono::milliseconds(20));
-    if(!running_.load()) break;
-    
-    {
-        std::lock_guard<std::mutex> lock(clock_mutex_);
-        ticks_++;
-    }
-    clock_cv_.notify_all();
+  }
+}
 
-    if (running_.load() && memory_manager_ && (ticks_.load() % quantum_cycles_) == 0 && ticks_.load() > 0) {
-        quantum_report_counter_++;
+void Scheduler::signal_execute(){
+  
+  workers_completed_step_count_.store(0); // Reset barrier counter
+  std::unique_lock<std::mutex> lock(barrier_mutex_); // Acquire barrier mutex
+
+  tick_ready_.store(true);
+  dispatch_go_cv_.notify_all(); // Signal all CPUWorker threads to process their tick
+
+  std::cout << "Waiting " << "\n";
+
+  while (workers_completed_step_count_.load() != cpu_workers_.size()) {
+        workers_done_cv_.wait(lock);  // Wait for workers to complete
+  }
+
+  tick_ready_.store(false);
+  std::cout << "I am free " << "\n";
+
+  // Barrier passed. All workers have processed their tick and updated their flags.
+
+}
+
+bool Scheduler::find_idle_cpu(){
+  //free all cores need to be freed.
+  bool flag = false; //assume all cores are taken
+  active_cores_ = 0;
+
+  for(auto const& cpu: cpu_workers_){
+    
+    std::unique_lock<std::mutex> worker_lock(cpu->mutex_); // Acquire worker's mutex
+    if(cpu->has_completed_task_){
+      
+      std::shared_ptr<PCB> pcb = cpu->current_task_; // Read current_task_ safely
+      pcb->finishTime = std::chrono::system_clock::now();
+      memory_manager_->free(pcb->processID); //free memory
+      cpu->current_task_ = nullptr;
+      cpu->idle_ = true;
+      flag = true;
+
+      //clean up functions
+      move_to_finished(pcb);
+
+    } else if(cpu->needs_preemption_){
+        std::shared_ptr<PCB> pcb = cpu->current_task_; // Read current_task_ safely
+        cpu->current_task_ = nullptr;
+        cpu->idle_ = true;
+        flag = true;
+
+        move_to_ready(pcb); // Moves to ready_queue_ and removes from running_processes_
+
+      
+      flag = true;
+    } else if(cpu->is_idle()){
+      flag = true;
+    }
+  }
+  return flag; //if flag is true, either we freed a process or what
+}
+
+void Scheduler::find_free_cpu_and_assign(std::shared_ptr<PCB> process){
+    for(auto const& cpu: cpu_workers_){
+    if(cpu->is_idle()){
+      cpu->assign_task(process, quantum_cycles_);
+      break; //important so we dont assign to multiple cores
     }
   }
 }
+
+void Scheduler::generate_process() {
+    std::string process_name;
+    
+    // Generate a unique process name using a mutex for shared counter
+    { 
+      std::lock_guard<std::mutex> lock(process_counter_mutex_);
+
+      do {
+        ++process_counter_;
+        std::stringstream ss;
+        ss << "p" << std::setw(2) << std::setfill('0') << process_counter_;
+        process_name = ss.str();
+      } while (find_process_by_name(process_name) != nullptr); // Ensure name is unique
+    } 
+
+    // Generate a random memory size for the process
+    std::random_device rd;                         
+    std::mt19937 gen(rd());                        
+    // Use member variables for min/max memory per process (from Config)
+    std::uniform_int_distribution<> dist(minMemPerProc, maxMemPerProc); 
+    size_t memory_size = dist(gen);
+   
+    // Generate random instructions using captured config values
+    auto instructions = instruction_generator_.generateRandomProgram(
+      minInstructions, // Use the stored config values
+      maxInstructions,
+      process_name, 
+      minMemPerProc, // These are for instruction generation context (check your InstructionGenerator)
+      maxMemPerProc  // (match your existing usage in instruction_generator)
+    );
+   
+    // Check if the process can fit in the allocated memory size
+    // (The +64 seems to be a fixed overhead from your original code)
+    if (instructions.size() + 64 > memory_size) {
+      std::cerr << "Error: Process " << process_name
+                << " has too many instructions for the allocated memory size."
+                << std::endl;  
+    } else {
+      auto pcb = std::make_shared<PCB>(process_name, instructions, memory_size);
+      submit_process(pcb); // Submit the newly created process to the ready queue
+    }
+}
+
+// 2. start_batch_generation()
+// This function no longer creates a separate thread.
+// It simply sets a flag and captures configuration values needed by generate_process().
+void Scheduler::start_batch_generation() {
+  if (batch_generating_.load()) {
+    std::cout << "Batch process generation is already running." << std::endl;
+    return;
+  }
+  
+  // Capture the relevant configuration parameters as member variables
+  batch_generating_ = true; // Enable batch generation
+  std::cout << "Started batch process generation." << std::endl;
+}
+
+// 3. stop_batch_generation()
+// This function no longer deals with joining a thread.
+// It simply clears the flag that controls batch generation.
+void Scheduler::stop_batch_generation() {
+  if (!batch_generating_.exchange(false)) { // Atomically set to false and check if it was already false
+    return; // Batch generation was not running
+  }
+
+  // No batch_generator_thread_ to join or reset.
+
+  // Report the total count of processes generated
+  uint32_t count = 0;
+  { // Lock to safely read the final process_counter_
+    std::lock_guard<std::mutex> lock(process_counter_mutex_);
+    count = process_counter_;
+  }
+  std::cout << count << " processes generated" << std::endl;
+}
+
 
 void Scheduler::start(const Config& config) {
   running_ = true;
@@ -216,8 +289,10 @@ void Scheduler::start(const Config& config) {
   core_count_ = config.cpuCount;
   maxOverallMemory = config.maxOverallMemory;
   memPerFrame = config.memPerFrame;
-  minMemPerProc = config.minMemPerProc;
-  maxMemPerProc = config.maxMemPerProc;
+  minMemPerProc = config.min_mem_per_proc;
+  maxMemPerProc = config.max_mem_per_proc;
+  minInstructions = config.minInstructions;
+  maxInstructions = config.maxInstructions;
 
   memory_manager_ = std::make_unique<MemoryManager>(config.max_overall_mem);
   mem_per_proc_ = config.min_mem_per_proc;
@@ -231,7 +306,6 @@ void Scheduler::start(const Config& config) {
             << std::endl;
 
   dispatch_thread_ = std::thread(&Scheduler::dispatch, this);
-  global_clock_thread_ = std::thread(&Scheduler::global_clock, this);
 }
 
 void Scheduler::stop() {
@@ -340,80 +414,6 @@ void Scheduler::move_to_ready(std::shared_ptr<PCB> pcb) {
   ready_queue_.push(std::move(pcb));
 }
 
-void Scheduler::start_batch_generation(const Config& config) {
-  if (batch_generating_.load()) {
-    std::cout << "Batch process generation is already running." << std::endl;
-    return;
-  }
-  
-  batch_generating_ = true;
-  batch_generator_thread_ = std::make_unique<std::thread>([this, config]() {
-    uint32_t last_tick_seen = 0;
-    
-    while (batch_generating_.load()) {      
-      if (get_ticks() - last_tick_seen >= batch_process_freq_) {
-        last_tick_seen = get_ticks();
-       std::string process_name;
-       
-       {
-         std::lock_guard<std::mutex> lock(process_counter_mutex_);
-
-         do {
-           ++process_counter_;
-           std::stringstream ss;
-           ss << "p" << std::setw(2) << std::setfill('0') << process_counter_;
-           process_name = ss.str();
-         } while (find_process_by_name(process_name) != nullptr);
-       } 
-
-        // Generate a random memory size for the process
-        std::random_device rd;                         
-        std::mt19937 gen(rd());                        
-        std::uniform_int_distribution<> dist(minMemPerProc, maxMemPerProc); 
-
-        size_t memory_size = dist(gen);
-       
-        auto instructions = instruction_generator_.generateRandomProgram(
-          config.minInstructions, 
-          config.maxInstructions, 
-          process_name, 
-          config.min_mem_per_proc,
-          config.max_mem_per_proc
-        );
-       
-        // Check if the process can fit in the memory size allocated
-        if (instructions.size() + 64 > memory_size) {
-          std::cerr << "Error: Process " << process_name
-                    << " has too many instructions for the allocated memory size."
-                    << std::endl;  
-        } else {
-          auto pcb = std::make_shared<PCB>(process_name, instructions, memory_size);
-          submit_process(pcb);
-        }
-      }
-    }
-  });
-  
-  std::cout << "Started batch process generation." << std::endl;
-}
-
-void Scheduler::stop_batch_generation() {
-  if (!batch_generating_.exchange(false)) {
-    return;
-  }
-
-  if (batch_generator_thread_ && batch_generator_thread_->joinable()) {
-    batch_generator_thread_->join();
-  }
-  batch_generator_thread_.reset();
-
- uint32_t count = 0;
-  {
-    std::lock_guard<std::mutex> lock(process_counter_mutex_);
-    count = process_counter_;
-  }
-  std::cout << count << " processes generated" << std::endl;
-}
 
 void Scheduler::calculate_cpu_utilization(size_t& total_cores,
                                           size_t& cores_used,

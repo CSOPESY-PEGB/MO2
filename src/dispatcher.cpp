@@ -40,7 +40,7 @@ void dispatch(Commands cmd, std::vector<std::string>& args, Config& cfg,
       if (scheduler.is_generating()) {
         std::cout << "Scheduler is already generating processes.\n";
       } else {
-        scheduler.start_batch_generation(cfg);
+        scheduler.start_batch_generation();
       }
       break;
       

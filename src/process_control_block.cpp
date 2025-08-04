@@ -80,16 +80,17 @@ PCB::PCB(std::string procName, const std::vector<Expr>& instrs, size_t memory_si
 //   evaluator->handle_declare("x", Atom(static_cast<uint16_t>(0)));
 // }
 
-void PCB::step() {
+InstructionExecutionInfo PCB::step() {
   if (isSleeping()) {
     decrementSleepCycles();
-    return;
+    return InstructionExecutionInfo();
   }
   
   if (currentInstruction < instructions.size()) {
     executeCurrentInstruction();
     ++currentInstruction;
   }
+  return InstructionExecutionInfo();
 }
 
 

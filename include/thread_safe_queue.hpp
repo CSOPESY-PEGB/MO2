@@ -22,6 +22,17 @@ class ThreadSafeQueue {
     cond_.notify_all();
   }
 
+  // Non-blocking pop: returns std::optional<T> (nullopt if empty)
+  std::optional<T> try_pop() {
+      std::lock_guard<std::mutex> lock(mutex_);
+      if (queue_.empty()) {
+          return std::nullopt;  // Return std::nullopt if queue is empty
+      }
+      T value = std::move(queue_.front());
+      queue_.pop();
+      return value;
+  }
+
   bool wait_and_pop(T& value) {
     std::unique_lock<std::mutex> lock(mutex_);
     cond_.wait(lock, [this] { return !queue_.empty() || shutdown_requested_.load(); });
