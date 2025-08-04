@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 project(ProcessSim LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 20)
-file(GLOB SRC CONFIGURE_DEPENDS src/*.cpp)
+file(GLOB SRC CONFIGURE_DEPENDS src/*.cpp src/*.cc)
 add_executable(sim ${SRC}
         src/screen.cpp
         include/screen.hpp
@@ -10,6 +10,8 @@ add_executable(sim ${SRC}
         include/thread_safe_queue.hpp
         include/scheduler.hpp
         src/scheduler.cpp
+        include/cpu_worker.h
+        src/cpu_worker.cc
         include/instruction_parser.hpp
         src/instruction_parser.cpp
         include/instruction_generator.hpp

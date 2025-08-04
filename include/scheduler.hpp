@@ -11,7 +11,8 @@
 #include "thread_safe_queue.hpp"
 #include "instruction_generator.hpp"
 #include "config.hpp"
-#include "memory_manager.hpp" // NEW: Include the memory manager header
+#include "memory_manager.hpp"
+#include "cpu_worker.h"
 
 namespace osemu {
 
@@ -39,24 +40,33 @@ class Scheduler {
   bool is_generating() const { return batch_generating_; }
   std::shared_ptr<PCB> find_process_by_name(const std::string& name) const;
   
+  void move_to_running(std::shared_ptr<PCB> pcb);
+  void move_to_finished(std::shared_ptr<PCB> pcb);
+  void move_to_ready(std::shared_ptr<PCB> pcb);
+  
   void generate_report(const std::string& filename = "csopesy-log.txt") const;
+  void print_process_smi() const;
+  void print_vmstat() const;
 
-  size_t get_ticks(){ return ticks_.load(); } 
+  size_t get_ticks() const { return ticks_.load(); }
+  MemoryManager* get_memory_manager() const { return memory_manager_.get(); }
+  
+  // Public interface methods for CpuWorker access  
+  std::mutex& GetClockMutex() { return clock_mutex_; }
+  std::condition_variable& GetClockCondition() { return clock_cv_; }
+  bool IsRunning() const { return running_.load(); }
+  size_t GetDelayPerExecution() const { return delay_per_exec_; }
 
   std::unique_ptr<MemoryManager> memory_manager_;
 
  private:
-  friend class CPUWorker;
-  class CPUWorker;
-  void move_to_running(std::shared_ptr<PCB> pcb);
-  void move_to_finished(std::shared_ptr<PCB> pcb);
-  void move_to_ready(std::shared_ptr<PCB> pcb);
+  friend class CpuWorker;
   
   std::atomic<int> cores_ready_for_next_tick_{0};
   int total_cores_{0};
 
   std::atomic<bool> running_;
-  std::vector<std::unique_ptr<CPUWorker>> cpu_workers_;
+  std::vector<std::unique_ptr<CpuWorker>> cpu_workers_;
 
   ThreadSafeQueue<std::shared_ptr<PCB>> ready_queue_;
 
@@ -99,6 +109,12 @@ class Scheduler {
   size_t maxMemPerProc{1024};
 
   SchedulingAlgorithm algorithm_{SchedulingAlgorithm::FCFS};
+  
+  // Tracking for vmstat
+  std::atomic<size_t> idle_cpu_ticks_{0};
+  std::atomic<size_t> active_cpu_ticks_{0};
+  std::atomic<size_t> pages_paged_in_{0};
+  std::atomic<size_t> pages_paged_out_{0};
 
 };
 

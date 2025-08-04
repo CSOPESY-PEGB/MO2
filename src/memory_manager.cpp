@@ -10,10 +10,19 @@ namespace osemu {
 
 // --- Constructor, allocate, free, coalesce_free_blocks are unchanged ---
 
-MemoryManager::MemoryManager(uint32_t total_size)
-    : total_memory_size_(total_size) {
+MemoryManager::MemoryManager(uint32_t total_size, uint32_t frame_size)
+    : total_memory_size_(total_size), frame_size_(frame_size), 
+      num_frames_(total_size / frame_size), backing_store_filename_("csopesy-backing-store.txt") {
     memory_map_.push_back({0, total_memory_size_, true, 0});
-    std::cout << "Memory Manager initialized with " << total_size << " bytes." << std::endl;
+    
+    // Initialize frames
+    frames_.reserve(num_frames_);
+    for (uint32_t i = 0; i < num_frames_; ++i) {
+        frames_.emplace_back(i, frame_size_);
+    }
+    
+    std::cout << "Memory Manager initialized with " << total_size << " bytes (" 
+              << num_frames_ << " frames of " << frame_size_ << " bytes each)." << std::endl;
 }
 
 bool MemoryManager::allocate(uint32_t pcb_id, uint32_t size,
@@ -141,6 +150,229 @@ void MemoryManager::generate_memory_report(const std::string& filename) const {
 
 void MemoryManager::generate_memory_report(std::ostream& out) const {
     write_memory_report(out);
+}
+
+void MemoryManager::initialize_page_table(uint32_t pcb_id, uint32_t num_pages) {
+    std::lock_guard<std::mutex> lock(memory_mutex_);
+    page_tables_[pcb_id] = std::vector<PageTableEntry>(num_pages);
+}
+
+bool MemoryManager::handle_page_fault(uint32_t pcb_id, uint32_t virtual_address) {
+    std::lock_guard<std::mutex> lock(memory_mutex_);
+    
+    uint32_t page_id = virtual_address / frame_size_;
+    
+    // Check if page table exists
+    if (page_tables_.find(pcb_id) == page_tables_.end()) {
+        return false;
+    }
+    
+    auto& page_table = page_tables_[pcb_id];
+    if (page_id >= page_table.size()) {
+        return false; // Invalid page access
+    }
+    
+    // Allocate a frame
+    uint32_t frame_id = allocate_frame();
+    if (frame_id == UINT32_MAX) {
+        // No free frames, need to evict
+        frame_id = find_victim_frame();
+        evict_page(frame_id);
+    }
+    
+    // Load page from backing store
+    std::vector<uint8_t> page_data(frame_size_, 0);
+    if (load_page_from_backing_store(pcb_id, page_id, page_data)) {
+        pages_paged_in_++;
+    }
+    
+    // Update frame and page table
+    frames_[frame_id].is_free = false;
+    frames_[frame_id].pcb_id = pcb_id;
+    frames_[frame_id].page_id = page_id;
+    frames_[frame_id].data = page_data;
+    
+    page_table[page_id].is_valid = true;
+    page_table[page_id].frame_id = frame_id;
+    page_table[page_id].is_referenced = true;
+    
+    return true;
+}
+
+bool MemoryManager::read_from_memory(uint32_t pcb_id, uint32_t virtual_address, uint16_t& value) {
+    std::lock_guard<std::mutex> lock(memory_mutex_);
+    
+    uint32_t page_id = virtual_address / frame_size_;
+    uint32_t offset = virtual_address % frame_size_;
+    
+    if (page_tables_.find(pcb_id) == page_tables_.end()) {
+        return false;
+    }
+    
+    auto& page_table = page_tables_[pcb_id];
+    if (page_id >= page_table.size() || !page_table[page_id].is_valid) {
+        return false; // Page fault should be handled externally
+    }
+    
+    uint32_t frame_id = page_table[page_id].frame_id;
+    page_table[page_id].is_referenced = true;
+    
+    if (offset + 1 >= frame_size_) {
+        return false; // Invalid access
+    }
+    
+    // Read uint16 from frame data
+    value = static_cast<uint16_t>(frames_[frame_id].data[offset]) |
+            (static_cast<uint16_t>(frames_[frame_id].data[offset + 1]) << 8);
+    
+    return true;
+}
+
+bool MemoryManager::write_to_memory(uint32_t pcb_id, uint32_t virtual_address, uint16_t value) {
+    std::lock_guard<std::mutex> lock(memory_mutex_);
+    
+    uint32_t page_id = virtual_address / frame_size_;
+    uint32_t offset = virtual_address % frame_size_;
+    
+    if (page_tables_.find(pcb_id) == page_tables_.end()) {
+        return false;
+    }
+    
+    auto& page_table = page_tables_[pcb_id];
+    if (page_id >= page_table.size() || !page_table[page_id].is_valid) {
+        return false; // Page fault should be handled externally
+    }
+    
+    uint32_t frame_id = page_table[page_id].frame_id;
+    page_table[page_id].is_referenced = true;
+    page_table[page_id].is_dirty = true;
+    
+    if (offset + 1 >= frame_size_) {
+        return false; // Invalid access
+    }
+    
+    // Write uint16 to frame data
+    frames_[frame_id].data[offset] = static_cast<uint8_t>(value & 0xFF);
+    frames_[frame_id].data[offset + 1] = static_cast<uint8_t>((value >> 8) & 0xFF);
+    
+    return true;
+}
+
+uint32_t MemoryManager::allocate_frame() {
+    for (uint32_t i = 0; i < num_frames_; ++i) {
+        if (frames_[i].is_free) {
+            return i;
+        }
+    }
+    return UINT32_MAX; // No free frame
+}
+
+uint32_t MemoryManager::find_victim_frame() {
+    // Simple LRU approximation: find least recently referenced frame
+    for (uint32_t i = 0; i < num_frames_; ++i) {
+        if (!frames_[i].is_free) {
+            uint32_t pcb_id = frames_[i].pcb_id;
+            uint32_t page_id = frames_[i].page_id;
+            
+            if (page_tables_.find(pcb_id) != page_tables_.end()) {
+                auto& page_table = page_tables_[pcb_id];
+                if (page_id < page_table.size() && !page_table[page_id].is_referenced) {
+                    return i;
+                }
+            }
+        }
+    }
+    
+    // If all pages are referenced, clear reference bits and return first frame
+    for (uint32_t i = 0; i < num_frames_; ++i) {
+        if (!frames_[i].is_free) {
+            uint32_t pcb_id = frames_[i].pcb_id;
+            uint32_t page_id = frames_[i].page_id;
+            
+            if (page_tables_.find(pcb_id) != page_tables_.end()) {
+                auto& page_table = page_tables_[pcb_id];
+                if (page_id < page_table.size()) {
+                    page_table[page_id].is_referenced = false;
+                }
+            }
+        }
+    }
+    
+    return 0; // Return first frame as victim
+}
+
+void MemoryManager::evict_page(uint32_t frame_id) {
+    if (frame_id >= num_frames_ || frames_[frame_id].is_free) {
+        return;
+    }
+    
+    uint32_t pcb_id = frames_[frame_id].pcb_id;
+    uint32_t page_id = frames_[frame_id].page_id;
+    
+    // Save to backing store if dirty
+    if (page_tables_.find(pcb_id) != page_tables_.end()) {
+        auto& page_table = page_tables_[pcb_id];
+        if (page_id < page_table.size() && page_table[page_id].is_dirty) {
+            save_page_to_backing_store(pcb_id, page_id, frames_[frame_id].data);
+            pages_paged_out_++;
+        }
+        
+        // Invalidate page table entry
+        page_table[page_id].is_valid = false;
+        page_table[page_id].is_dirty = false;
+        page_table[page_id].is_referenced = false;
+    }
+    
+    // Mark frame as free
+    frames_[frame_id].is_free = true;
+    frames_[frame_id].pcb_id = 0;
+    frames_[frame_id].page_id = 0;
+}
+
+void MemoryManager::save_page_to_backing_store(uint32_t pcb_id, uint32_t page_id, const std::vector<uint8_t>& data) {
+    std::ofstream file(backing_store_filename_, std::ios::binary | std::ios::app);
+    if (file) {
+        file.write(reinterpret_cast<const char*>(&pcb_id), sizeof(pcb_id));
+        file.write(reinterpret_cast<const char*>(&page_id), sizeof(page_id));
+        file.write(reinterpret_cast<const char*>(data.data()), data.size());
+    }
+}
+
+bool MemoryManager::load_page_from_backing_store(uint32_t pcb_id, uint32_t page_id, std::vector<uint8_t>& data) {
+    std::ifstream file(backing_store_filename_, std::ios::binary);
+    if (!file) {
+        return false;
+    }
+    
+    uint32_t stored_pcb_id, stored_page_id;
+    while (file.read(reinterpret_cast<char*>(&stored_pcb_id), sizeof(stored_pcb_id)) &&
+           file.read(reinterpret_cast<char*>(&stored_page_id), sizeof(stored_page_id))) {
+        
+        if (stored_pcb_id == pcb_id && stored_page_id == page_id) {
+            file.read(reinterpret_cast<char*>(data.data()), data.size());
+            return true;
+        } else {
+            file.seekg(frame_size_, std::ios::cur); // Skip this page
+        }
+    }
+    
+    return false;
+}
+
+uint32_t MemoryManager::get_used_memory() const {
+    std::lock_guard<std::mutex> lock(memory_mutex_);
+    uint32_t used = 0;
+    // Check memory_map_ for traditional memory allocation
+    for (const auto& block : memory_map_) {
+        if (!block.is_free) {
+            used += block.size;
+        }
+    }
+    return used;
+}
+
+uint32_t MemoryManager::get_free_memory() const {
+    return total_memory_size_ - get_used_memory();
 }
 
 }

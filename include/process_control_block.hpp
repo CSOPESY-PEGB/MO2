@@ -15,13 +15,14 @@
 namespace osemu {
 
 class InstructionEvaluator;
+class MemoryManager;
 
 class PCB : public std::enable_shared_from_this<PCB> {
  public:
-  PCB(std::string procName, size_t totalLines);
-  PCB(std::string procName, const std::vector<Expr>& instructions);
+  PCB(std::string procName, size_t totalLines, MemoryManager* memory_manager = nullptr);
+  PCB(std::string procName, const std::vector<Expr>& instructions, MemoryManager* memory_manager = nullptr);
   PCB(std::string procName, const std::vector<Expr>& instrs,
-      size_t memory_size);
+      size_t memory_size, MemoryManager* memory_manager = nullptr);
   static std::atomic<uint32_t> next_pid;
 
   void step();

@@ -5,8 +5,38 @@
 #include <limits>
 #include <stdexcept>
 #include <string>
+#include <cmath>
 
 namespace osemu {
+
+namespace {
+bool is_power_of_2(uint32_t value) {
+  return value > 0 && (value & (value - 1)) == 0;
+}
+
+uint32_t validate_memory_value(uint32_t value, const std::string& param_name) {
+  // Different validation rules for different parameters
+  if (param_name == "mem-per-frame") {
+    // Frame sizes can be smaller, just need to be power of 2
+    if (value < 2 || value > 65536) {
+      throw std::runtime_error("Invalid memory allocation for " + param_name + ": " + std::to_string(value) + 
+                               ". Must be between 2 and 65536 bytes.");
+    }
+  } else {
+    // Process memory allocations must be at least 64 bytes
+    if (value < 64 || value > 65536) {
+      throw std::runtime_error("Invalid memory allocation for " + param_name + ": " + std::to_string(value) + 
+                               ". Must be between 64 and 65536 bytes.");
+    }
+  }
+  
+  if (!is_power_of_2(value)) {
+    throw std::runtime_error("Invalid memory allocation for " + param_name + ": " + std::to_string(value) + 
+                             ". Must be a power of 2.");
+  }
+  return value;
+}
+}
 
 Config::Config(uint32_t cpu, SchedulingAlgorithm sched, uint32_t quantum,
                uint32_t freq, uint32_t minIns, uint32_t maxIns, uint32_t delay, uint32_t mem_per_frame, uint32_t min_mem_per_proc, uint32_t max_mem_per_proc, uint32_t max_overall_mem)
@@ -21,11 +51,10 @@ Config::Config(uint32_t cpu, SchedulingAlgorithm sched, uint32_t quantum,
       maxInstructions{std::clamp(maxIns, minInstructions,
                                  std::numeric_limits<uint32_t>::max())},
       delayCyclesPerInstruction{delay},
-      max_overall_mem{std::clamp(max_overall_mem, 1u, std::numeric_limits<uint32_t>::max())},
-      mem_per_frame{std::clamp(mem_per_frame, 1u, std::numeric_limits<uint32_t>::max())},
-      min_mem_per_proc{std::clamp(min_mem_per_proc, 1u, std::numeric_limits<uint32_t>::max())},
-      max_mem_per_proc{std::clamp(max_mem_per_proc, min_mem_per_proc,
-                               std::numeric_limits<uint32_t>::max())} {
+      max_overall_mem{validate_memory_value(max_overall_mem, "max-overall-mem")},
+      mem_per_frame{validate_memory_value(mem_per_frame, "mem-per-frame")},
+      min_mem_per_proc{validate_memory_value(min_mem_per_proc, "min-mem-per-proc")},
+      max_mem_per_proc{validate_memory_value(max_mem_per_proc, "max-mem-per-proc")} {
   if (scheduler != SchedulingAlgorithm::RoundRobin) {
     quantumCycles = 1;
   }
@@ -56,13 +85,13 @@ Config Config::fromFile(const std::filesystem::path& file) {
     } else if (key == "delay-per-exec") {
       cfg.delayCyclesPerInstruction = std::stoul(value);
     } else if (key == "max-overall-mem"){
-      cfg.max_overall_mem = std::stoul(value);
+      cfg.max_overall_mem = validate_memory_value(std::stoul(value), "max-overall-mem");
     } else if (key == "mem-per-frame"){
-      cfg.mem_per_frame = std::stoul(value);
+      cfg.mem_per_frame = validate_memory_value(std::stoul(value), "mem-per-frame");
     } else if (key == "min-mem-per-proc"){
-      cfg.min_mem_per_proc = std::stoul(value);
+      cfg.min_mem_per_proc = validate_memory_value(std::stoul(value), "min-mem-per-proc");
     } else if (key == "max-mem-per-proc"){
-      cfg.max_mem_per_proc = std::stoul(value);
+      cfg.max_mem_per_proc = validate_memory_value(std::stoul(value), "max-mem-per-proc");
     }
   }
   return cfg;
