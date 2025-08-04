@@ -26,6 +26,7 @@ public:
     // This is a const method because it only reads the memory state.
     bool is_allocated(uint32_t pcb_id) const;
     void generate_memory_report(std::ostream& out) const;
+    void handle_page_faults();
 
 
 private:

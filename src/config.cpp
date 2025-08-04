@@ -23,8 +23,8 @@ Config::Config(uint32_t cpu, SchedulingAlgorithm sched, uint32_t quantum,
       delayCyclesPerInstruction{delay},
       maxOverallMemory{std::clamp(maxOverallMemory, 1u, std::numeric_limits<uint32_t>::max())},
       memPerFrame{std::clamp(memPerFrame, 1u, std::numeric_limits<uint32_t>::max())},
-      minMemPerProc{std::clamp(minMemPerProc, 1u, std::numeric_limits<uint32_t>::max())},
-      maxMemPerProc{std::clamp(maxMemPerProc, minMemPerProc,
+      min_mem_per_proc{std::clamp(minMemPerProc, 1u, std::numeric_limits<uint32_t>::max())},
+      max_mem_per_proc{std::clamp(maxMemPerProc, minMemPerProc,
                                std::numeric_limits<uint32_t>::max())} {
   if (scheduler != SchedulingAlgorithm::RoundRobin) {
     quantumCycles = 1;

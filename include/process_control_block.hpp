@@ -16,6 +16,24 @@ namespace osemu {
 
 class InstructionEvaluator;
 
+enum class InstructionResult {
+    SUCCESS,        // Instruction executed successfully
+    PAGE_FAULT,     // Instruction caused a page fault (needed page not in memory)
+    PROCESS_COMPLETE // Instruction caused the process to complete (e.g., last instruction)
+};
+
+struct InstructionExecutionInfo{
+  InstructionResult result;
+  size_t faulting_virtual_address;
+
+  // Default constructor: Initializes to SUCCESS, with no faulting address
+  InstructionExecutionInfo() : result(InstructionResult::SUCCESS), faulting_virtual_address(0) {}
+  // Parameterized constructor: For specifying result and an optional faulting address
+  InstructionExecutionInfo(InstructionResult r, size_t addr = 0)
+      : result(r), faulting_virtual_address(addr) {}
+
+};
+
 class PCB : public std::enable_shared_from_this<PCB> {
  public:
   PCB(std::string procName, size_t totalLines);
@@ -24,7 +42,7 @@ class PCB : public std::enable_shared_from_this<PCB> {
       size_t memory_size);
   static std::atomic<uint32_t> next_pid;
 
-  void step();
+  InstructionExecutionInfo step();
   bool isComplete() const;
   std::string status() const;
   

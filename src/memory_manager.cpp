@@ -53,6 +53,10 @@ void MemoryManager::free(uint32_t pcb_id) {
     }
 }
 
+void MemoryManager::handle_page_faults(){
+    //
+}
+
 void MemoryManager::coalesce_free_blocks(std::list<MemoryBlock>::iterator newly_freed_block) {
     auto next_block = std::next(newly_freed_block);
     if (next_block != memory_map_.end() && next_block->is_free) {
