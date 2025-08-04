@@ -104,7 +104,8 @@ bool create_process(const std::string& process_name, Scheduler& scheduler, Confi
     return false; // Abort the creation
   }
   if (memory_size > config.max_overall_mem) {
-    std::cerr << "Error: Process exceeds overall memory limit.\n";
+    std::cerr << std::format("Error: Process exceeds overall memory limit {} > {}.\n",
+                             memory_size, config.max_overall_mem);
     return false;
   }
 
