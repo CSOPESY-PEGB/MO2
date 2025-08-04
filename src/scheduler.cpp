@@ -191,23 +191,47 @@ void Scheduler::dispatch(){
   }
 }
 
-void Scheduler::global_clock(){
-  while(running_.load()){
+void Scheduler::global_clock() {
+  while (running_.load()) {
     std::this_thread::sleep_for(std::chrono::milliseconds(20));
-    if(!running_.load()) break;
-    
+    if (!running_.load()) break;
+
     {
-        std::lock_guard<std::mutex> lock(clock_mutex_);
-        ticks_++;
+      std::lock_guard<std::mutex> lock(clock_mutex_);
+      ticks_++;
     }
     clock_cv_.notify_all();
 
-    if (running_.load() && memory_manager_ && (ticks_.load() % quantum_cycles_) == 0 && ticks_.load() > 0) {
-        quantum_report_counter_++;
+    if (running_.load() && memory_manager_ &&
+        (ticks_.load() % quantum_cycles_) == 0 && ticks_.load() > 0) {
+      quantum_report_counter_++;
     }
   }
 }
 
+void Scheduler::check_config_scheduler_for_discrepancies(const Config& config) {
+  std::cout << "debug: max_overall_mem " << config.max_overall_mem << std::endl;
+  std::cout << "debug: maxOverallMem " << maxOverallMemory << std::endl;
+
+  std::cout << "debug: mem_per_frame (config)" << config.mem_per_frame
+            << std::endl;
+  std::cout << "debug: memPerFrame (scheduler)" << memPerFrame << std::endl;
+
+  std::cout << "debug: mem_per_proc_ (scheduler) " << mem_per_proc_
+            << std::endl;
+  std::cout << "debug: mem_per_proc_ (config) " << config.min_mem_per_proc
+            << std::endl;
+
+  std::cout << "debug: minMemPerProc - (scheduler) " << minMemPerProc
+            << std::endl;
+  std::cout << "debug: min_mem_per_proc - (config) " << config.min_mem_per_proc
+            << std::endl;
+
+  std::cout << "debug: maxMemPerProc - scheduler " << maxMemPerProc
+            << std::endl;
+  std::cout << "debug: max_mem_per_proc - config " << config.max_mem_per_proc
+            << std::endl;
+}
 void Scheduler::start(const Config& config) {
   running_ = true;
   delay_per_exec_ = config.delayCyclesPerInstruction;
@@ -229,6 +253,9 @@ void Scheduler::start(const Config& config) {
 
   std::cout << "Scheduler started with " << config.cpuCount << " cores."
             << std::endl;
+
+  // debuggg
+  // check_config_scheduler_for_discrepancies(config);
 
   dispatch_thread_ = std::thread(&Scheduler::dispatch, this);
   global_clock_thread_ = std::thread(&Scheduler::global_clock, this);
