@@ -13,7 +13,9 @@ enum class Commands {
   SchedulerStop,
   ReportUtil,
   Clear,
-  Exit
+  Exit,
+  ProcessSmi,
+  Vmstat
 };
 
 Commands from_str(std::string_view cmd);

@@ -10,6 +10,7 @@
 #include <string>
 #include <thread>  
 #include <vector>
+#include <chrono>
 
 #include "console.hpp"  
 #include "instruction_generator.hpp"
@@ -19,6 +20,24 @@
 
 namespace osemu {
 namespace {
+
+bool is_power_of_2(size_t value) {
+  return value > 0 && (value & (value - 1)) == 0;
+}
+
+bool validate_memory_size(size_t memory_size) {
+  if (memory_size < 64 || memory_size > 65536) {
+    std::cout << "Invalid memory allocation: " << memory_size 
+              << ". Must be between 64 and 65536 bytes." << std::endl;
+    return false;
+  }
+  if (!is_power_of_2(memory_size)) {
+    std::cout << "Invalid memory allocation: " << memory_size 
+              << ". Must be a power of 2." << std::endl;
+    return false;
+  }
+  return true;
+}
 
 
 
@@ -40,7 +59,10 @@ void view_process_screen(const std::string& process_name, Scheduler& scheduler) 
     std::shared_ptr<PCB> pcb = find_process(process_name, scheduler);
 
     if (!pcb) {
-      throw std::runtime_error("Process " + process_name + " not found.");
+      // Check if process was terminated due to memory access violation
+      // This would require tracking terminated processes with error reasons
+      std::cout << "Process " << process_name << " not found." << std::endl;
+      return;
     }
     std::cout << "\x1b[2J\x1b[H";
 
@@ -97,12 +119,18 @@ void view_process_screen(const std::string& process_name, Scheduler& scheduler) 
 
 
 
-bool create_process(const std::string& process_name, Scheduler& scheduler, Config& config, size_t memory_size = 512) {
+bool create_process(const std::string& process_name, Scheduler& scheduler, Config& config, size_t memory_size = 4096) {
   //check for existing processname
   if (scheduler.find_process_by_name(process_name) != nullptr) {
     std::cerr << "Error: Process '" << process_name << "' already exists. Please choose a unique name." << std::endl;
     return false; // Abort the creation
   }
+  
+  // Validate memory size according to MO2 requirements
+  if (!validate_memory_size(memory_size)) {
+    return false;
+  }
+  
   if (memory_size > config.max_overall_mem) {
     std::cerr << std::format("Error: Process exceeds overall memory limit {} > {}.\n",
                              memory_size, config.max_overall_mem);
@@ -112,7 +140,7 @@ bool create_process(const std::string& process_name, Scheduler& scheduler, Confi
   InstructionGenerator generator;
 
   auto instructions = generator.generateRandomProgram(config.minInstructions, config.maxInstructions, process_name, config.min_mem_per_proc, config.max_mem_per_proc);
-  auto pcb = std::make_shared<PCB>(process_name, instructions, memory_size);
+  auto pcb = std::make_shared<PCB>(process_name, instructions, memory_size, scheduler.get_memory_manager());
   
   std::cout << "Created process '" << process_name << "' with " 
             << instructions.size() << " instructions and memory size of "
@@ -144,7 +172,7 @@ void create_process_from_file(const std::string& filename, const std::string& pr
     return;
   }
   
-  auto pcb = std::make_shared<PCB>(process_name, program);
+  auto pcb = std::make_shared<PCB>(process_name, program, scheduler.get_memory_manager());
   
   std::cout << "Created process '" << process_name << "' from file '" << filename 
             << "' with " << program.size() << " instructions." << std::endl;
@@ -182,34 +210,86 @@ std::string transformInstructions(const std::string& input) {
     // Unescape all double quotes
     tempInput = unescapeQuotes(tempInput);
     
-    // Split the input by semicolons (convert to new lines)
+    // Split the input by semicolons and convert to proper format
     std::istringstream stream(tempInput);
-    std::string line;
+    std::string instruction;
     
-    while (std::getline(stream, line, ';')) {
-        if (line.empty()) continue; // Skip empty lines
-        if (line.starts_with(" PRINT")){
-          result += line.substr(1);
-          break;
-        }; //dont clean print
-        // Now process each instruction
-        std::istringstream instrStream(line);
-        std::string instruction;
-        instrStream >> instruction; // Get the instruction (e.g., DECLARE, ADD)
-
-        result += instruction + "(";
-
-        // Process the arguments
-        std::string arg;
-        bool first = true;
+    while (std::getline(stream, instruction, ';')) {
+        // Trim whitespace
+        size_t start = instruction.find_first_not_of(" \t");
+        if (start == std::string::npos) continue; // Skip empty instructions
+        size_t end = instruction.find_last_not_of(" \t");
+        instruction = instruction.substr(start, end - start + 1);
         
-        while (instrStream >> arg) {
-            if (!first) result += ", ";
-            result += arg;
-            first = false;
+        if (instruction.empty()) continue;
+        
+        // Parse different instruction types
+        if (instruction.find("DECLARE ") == 0) {
+            // Format: DECLARE varA 10 -> DECLARE(varA, 10)
+            std::istringstream iss(instruction);
+            std::string cmd, var, value;
+            iss >> cmd >> var >> value;
+            result += cmd + "(" + var + ", " + value + ")\n";
         }
-
-        result += ")\n";
+        else if (instruction.find("ADD ") == 0) {
+            // Format: ADD varA varA varB -> ADD(varA, varA, varB)
+            std::istringstream iss(instruction);
+            std::string cmd, var1, var2, var3;
+            iss >> cmd >> var1 >> var2 >> var3;
+            result += cmd + "(" + var1 + ", " + var2 + ", " + var3 + ")\n";
+        }
+        else if (instruction.find("SUB ") == 0) {
+            // Format: SUB varA varB varC -> SUB(varA, varB, varC)
+            std::istringstream iss(instruction);
+            std::string cmd, var1, var2, var3;
+            iss >> cmd >> var1 >> var2 >> var3;
+            result += cmd + "(" + var1 + ", " + var2 + ", " + var3 + ")\n";
+        }
+        else if (instruction.find("WRITE ") == 0) {
+            // Format: WRITE 0x500 varA -> WRITE(0x500, varA)
+            std::istringstream iss(instruction);
+            std::string cmd, addr, value;
+            iss >> cmd >> addr >> value;
+            result += cmd + "(" + addr + ", " + value + ")\n";
+        }
+        else if (instruction.find("READ ") == 0) {
+            // Format: READ varC 0x500 -> READ(varC, 0x500)
+            std::istringstream iss(instruction);
+            std::string cmd, var, addr;
+            iss >> cmd >> var >> addr;
+            result += cmd + "(" + var + ", " + addr + ")\n";
+        }
+        else if (instruction.find("PRINT(") == 0) {
+            // Already in correct format, just add newline
+            result += instruction + "\n";
+        }
+        else if (instruction.find("PRINT ") == 0) {
+            // Handle PRINT with space - this shouldn't happen in the test format but just in case
+            result += instruction + "\n";
+        }
+        else if (instruction.find("SLEEP ") == 0) {
+            // Format: SLEEP 1 -> SLEEP(1)
+            std::istringstream iss(instruction);
+            std::string cmd, value;
+            iss >> cmd >> value;
+            result += cmd + "(" + value + ")\n";
+        }
+        else {
+            // For any other format, try to parse as generic command
+            std::istringstream iss(instruction);
+            std::string cmd;
+            iss >> cmd;
+            
+            result += cmd + "(";
+            std::string arg;
+            bool first = true;
+            while (iss >> arg) {
+                if (!first) result += ", ";
+                result += arg;
+                first = false;
+            }
+            result += ")\n";
+        }
     }
 
     return result;
@@ -219,6 +299,12 @@ std::string transformInstructions(const std::string& input) {
 void create_process_from_string(const std::string& process_name, size_t memory, const std::string& instructions, Config& config, Scheduler& scheduler){
   //remove starting and ending "
   //unescape all \"
+  
+  // Validate memory size according to MO2 requirements
+  if (!validate_memory_size(memory)) {
+    return;
+  }
+  
   if (memory > config.max_overall_mem) {
     std::cerr << "Error: Process exceeds overall memory limit.\n";
     return;
@@ -234,7 +320,7 @@ void create_process_from_string(const std::string& process_name, size_t memory, 
     return;
   }
 
-  auto pcb = std::make_shared<PCB>(process_name, program, memory);
+  auto pcb = std::make_shared<PCB>(process_name, program, memory, scheduler.get_memory_manager());
   
   std::cout << "Created process '" << process_name << " with " << memory << "bytes of memory." << std::endl;
   
@@ -247,7 +333,7 @@ enum class ScreenCommand { Start, Resume, List, File, Custom, Unknown };
 void display_usage() {
   std::cout
       << "Usage:\n"
-      << "  screen -s <name>     Start a new process with the given name.\n"
+      << "  screen -s <name> <memory_size>   Start a new process with the given name and memory size.\n"
       << "  screen -r <name>     View the real-time log of a running process.\n"
       << "  screen -ls           List all active processes.\n"
       << "  screen -f <file> <name>  Load process from .opesy file.\n"
@@ -279,10 +365,7 @@ void screen(std::vector<std::string>& args, Scheduler& scheduler, Config& config
       if(args.size() == 3) {
         try {
           size_t mem_siz  = static_cast<size_t>(std::stoull(args[2]));
-          bool created_success = create_process(args[1], scheduler, config, mem_siz);
-          if (created_success) {
-            view_process_screen(args[1],scheduler);
-          }
+          create_process(args[1], scheduler, config, mem_siz);
           break;
         } catch (const std::invalid_argument& e) {
             std::cout << "Invalid argument: " << e.what() << std::endl;
@@ -290,10 +373,7 @@ void screen(std::vector<std::string>& args, Scheduler& scheduler, Config& config
             std::cout << "Out of range: " << e.what() << std::endl;
         }
       } else if (args.size() == 2) {
-        bool created_success = create_process(args[1], scheduler, config);
-        if (created_success) {
-          view_process_screen(args[1],scheduler);
-        }
+        create_process(args[1], scheduler, config);
         break;
       } else {
         display_usage();

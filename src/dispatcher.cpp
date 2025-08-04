@@ -64,6 +64,14 @@ void dispatch(Commands cmd, std::vector<std::string>& args, Config& cfg,
     case Commands::Exit:
       scheduler.stop();
       break;
+      
+    case Commands::ProcessSmi:
+      scheduler.print_process_smi();
+      break;
+      
+    case Commands::Vmstat:
+      scheduler.print_vmstat();
+      break;
   }
 }
 
