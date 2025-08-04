@@ -24,6 +24,7 @@ class Scheduler {
 
   void dispatch();
   void global_clock();
+  void check_config_scheduler_for_discrepancies(const Config& config);
 
   void start(const Config& config);
   void stop();
