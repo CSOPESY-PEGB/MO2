@@ -114,7 +114,6 @@ bool create_process(const std::string& process_name, Scheduler& scheduler, Confi
             << memory_size << " bytes." << std::endl;
   
   scheduler.submit_process(pcb);
-  std::this_thread::sleep_for(std::chrono::milliseconds(100));
   return true;
 }
 

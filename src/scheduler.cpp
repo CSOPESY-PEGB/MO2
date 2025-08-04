@@ -52,13 +52,12 @@ void Scheduler::CPUWorker::assign_task(std::shared_ptr<PCB> pcb, int time_quantu
 // `run()` method - Corrected, fully synchronous, always participating in barrier
 void Scheduler::CPUWorker::run(){
     while(scheduler_.running_.load()){
+        const bool tick_ready_phase = scheduler_.tick_ready_.load();
         std::unique_lock<std::mutex> barrier_lock(scheduler_.barrier_mutex_);
-
         // Wait for the Scheduler's "go" signal for this tick.
         scheduler_.dispatch_go_cv_.wait(barrier_lock, [&]() {
-            return scheduler_.tick_ready_.load() || shutdown_requested_.load() || !scheduler_.running_.load();
+            return scheduler_.tick_ready_ == tick_ready_phase || shutdown_requested_.load() || !scheduler_.running_.load();
         });
-
 
         if (shutdown_requested_.load() || !scheduler_.running_.load()){
             break; // Exit thread if shutdown requested.
@@ -79,7 +78,9 @@ void Scheduler::CPUWorker::run(){
                 last_step_info_ = info; // Store this for the Scheduler to inspect
 
                 if (info.result == InstructionResult::PAGE_FAULT) { has_page_faulted_ = true; }
-                else if (info.result == InstructionResult::PROCESS_COMPLETE) { has_completed_task_ = true; }
+                else if (info.result == InstructionResult::PROCESS_COMPLETE) { 
+                  has_completed_task_ = true; 
+                }
                 else { // InstructionResult::SUCCESS
                     steps_executed_on_this_core_++;
                     if (scheduler_.algorithm_ == SchedulingAlgorithm::RoundRobin &&
@@ -92,10 +93,17 @@ void Scheduler::CPUWorker::run(){
         }
         
         self_lock.unlock(); // Release worker's own mutex
+        {
+          std::unique_lock<std::mutex> signal_lock(scheduler_.barrier_mutex_); // Re-acquire global barrier mutex
+          scheduler_.workers_completed_step_count_.fetch_add(1); // Increment global counter
+          scheduler_.workers_done_cv_.notify_one();              // Notify Scheduler
 
-        std::unique_lock<std::mutex> signal_lock(scheduler_.barrier_mutex_); // Re-acquire global barrier mutex
-        scheduler_.workers_completed_step_count_.fetch_add(1); // Increment global counter
-        scheduler_.workers_done_cv_.notify_one();              // Notify Scheduler
+          scheduler_.dispatch_go_cv_.wait(signal_lock, [&]() { // Use signal_lock (holds barrier_mutex_)
+            return tick_ready_phase != scheduler_.tick_ready_.load()  || shutdown_requested_.load() || !scheduler_.running_.load();
+          });
+        }
+
+
     }
 }
 
@@ -114,7 +122,6 @@ Scheduler::~Scheduler() {
 
 void Scheduler::dispatch(){
   while(running_.load()){
-    std::cout << "[DEBUG] DISPATCH LOOP STARTED " << ticks_ << std::endl;
 
     //this helper function frees cpus with expired time quantum or finished tasks
     bool one_free = find_idle_cpu(); 
@@ -122,9 +129,7 @@ void Scheduler::dispatch(){
     if(batch_generating_.load() && ticks_ % batch_process_freq_ == 0) generate_process(); 
 
     //if a free cpu exists try to pop, 
-    std::optional<std::shared_ptr<PCB>> process = one_free ? ready_queue_.try_pop() : nullptr; 
-
-    if(process) find_free_cpu_and_assign(*process); //assign process to the free cpu.
+    find_free_cpu_and_assign(); //assign process to the free cpu.
     //signal all cores to run; IMPORTANT; all cores must participate even when idle; this function also blocks until all cores have participated 
     signal_execute(); 
 
@@ -132,28 +137,36 @@ void Scheduler::dispatch(){
     memory_manager_->handle_page_faults(); 
 
     ticks_++;
-    std::cout << "[DEBUG] next tick lets go " << std::endl;
-    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    
   }
 }
 
 void Scheduler::signal_execute(){
   
   workers_completed_step_count_.store(0); // Reset barrier counter
-  std::unique_lock<std::mutex> lock(barrier_mutex_); // Acquire barrier mutex
-
-  tick_ready_.store(true);
+  
+  {
+    std::unique_lock<std::mutex> lock(barrier_mutex_); // Acquire barrier mutex
+    bool expected = tick_ready_.load();
+    bool desired;
+    do {
+      desired = !expected;
+    } while(!tick_ready_.compare_exchange_weak(expected, desired));
+  }
   dispatch_go_cv_.notify_all(); // Signal all CPUWorker threads to process their tick
 
-  std::cout << "Waiting " << "\n";
+  std::unique_lock<std::mutex> lock(barrier_mutex_); // Acquire barrier mutex
 
-  while (workers_completed_step_count_.load() != cpu_workers_.size()) {
-        workers_done_cv_.wait(lock);  // Wait for workers to complete
-  }
+  
+    workers_done_cv_.wait(lock, [&]{
+      bool done = workers_completed_step_count_.load() >= cpu_workers_.size();
+      bool shutting_down = !running_.load();
 
-  tick_ready_.store(false);
-  std::cout << "I am free " << "\n";
+      return done || shutting_down;
+               
+    });
 
+  
   // Barrier passed. All workers have processed their tick and updated their flags.
 
 }
@@ -170,18 +183,17 @@ bool Scheduler::find_idle_cpu(){
       
       std::shared_ptr<PCB> pcb = cpu->current_task_; // Read current_task_ safely
       pcb->finishTime = std::chrono::system_clock::now();
-      memory_manager_->free(pcb->processID); //free memory
-      cpu->current_task_ = nullptr;
+      //memory_manager_->free(pcb->processID); //free memory
       cpu->idle_ = true;
+      cpu->has_completed_task_ = false;
       flag = true;
-
       //clean up functions
       move_to_finished(pcb);
 
     } else if(cpu->needs_preemption_){
         std::shared_ptr<PCB> pcb = cpu->current_task_; // Read current_task_ safely
-        cpu->current_task_ = nullptr;
         cpu->idle_ = true;
+        cpu->needs_preemption_ = false;
         flag = true;
 
         move_to_ready(pcb); // Moves to ready_queue_ and removes from running_processes_
@@ -195,11 +207,18 @@ bool Scheduler::find_idle_cpu(){
   return flag; //if flag is true, either we freed a process or what
 }
 
-void Scheduler::find_free_cpu_and_assign(std::shared_ptr<PCB> process){
+void Scheduler::find_free_cpu_and_assign(){
+
     for(auto const& cpu: cpu_workers_){
+    
     if(cpu->is_idle()){
-      cpu->assign_task(process, quantum_cycles_);
-      break; //important so we dont assign to multiple cores
+      std::optional<std::shared_ptr<PCB>> try_process = ready_queue_.try_pop(); 
+      if(try_process.has_value()){
+        std::shared_ptr<PCB> process = try_process.value();
+        process->assignedCore = cpu->core_id_;
+        cpu->assign_task(process, quantum_cycles_);
+        move_to_running(process);
+      }
     }
   }
 }
@@ -302,7 +321,7 @@ void Scheduler::start(const Config& config) {
     cpu_workers_.back()->start();
   }
 
-  std::cout << "Scheduler started with " << config.cpuCount << " cores."
+  std::cout << "Scheduler started with " << core_count_ << " cores."
             << std::endl;
 
   dispatch_thread_ = std::thread(&Scheduler::dispatch, this);
@@ -390,9 +409,11 @@ std::shared_ptr<PCB> Scheduler::find_process_by_name(const std::string& processN
 }
 
 void Scheduler::move_to_running(std::shared_ptr<PCB> pcb) {
+
   std::lock_guard<std::mutex> lock(running_mutex_);
   running_processes_.push_back(std::move(pcb));
 }
+
 
 void Scheduler::move_to_finished(std::shared_ptr<PCB> pcb) {
   {
@@ -403,6 +424,7 @@ void Scheduler::move_to_finished(std::shared_ptr<PCB> pcb) {
     finished_processes_.push_back(std::move(pcb));
   }
 }
+
 
 void Scheduler::move_to_ready(std::shared_ptr<PCB> pcb) {
   {

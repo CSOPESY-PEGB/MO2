@@ -99,7 +99,7 @@ class Scheduler {
   void move_to_ready(std::shared_ptr<PCB> pcb);
   bool find_idle_cpu();
   void signal_execute();
-  void find_free_cpu_and_assign(std::shared_ptr<PCB> pcb);
+  void find_free_cpu_and_assign();
   void generate_process();
   
   std::atomic<int> cores_ready_for_next_tick_{0};
