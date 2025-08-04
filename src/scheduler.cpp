@@ -432,15 +432,21 @@ void Scheduler::generate_report(const std::string& filename) const {
     return;
   }
 
-  size_t total_cores = core_count_;
-  size_t cores_used = active_cores_;
   double cpu_utilization;
+  size_t total_cores = core_count_;
+  size_t cores_used = 0;
+  for (const auto& worker : cpu_workers_) {
+    if (!worker->is_idle()) {
+      ++cores_used;
+    }
+  }
+
   calculate_cpu_utilization(total_cores, cores_used, cpu_utilization);
 
   report_file << "CPU utilization: " << static_cast<int>(cpu_utilization) << "%\n";
   report_file << "Cores used: " << cores_used << "\n";
-  report_file << "Cores available: " << (total_cores - cores_used) << "\n\n";
-  
+  report_file << "Cores available: " << (core_count_ - cores_used) << "\n\n";
+
   report_file << "Running processes:\n";
   {
     std::lock_guard<std::mutex> lock(running_mutex_);
