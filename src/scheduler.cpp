@@ -214,10 +214,10 @@ void Scheduler::start(const Config& config) {
   quantum_cycles_ = config.quantumCycles;
   algorithm_ = config.scheduler;
   core_count_ = config.cpuCount;
-  maxOverallMemory = config.maxOverallMemory;
-  memPerFrame = config.memPerFrame;
-  minMemPerProc = config.minMemPerProc;
-  maxMemPerProc = config.maxMemPerProc;
+  maxOverallMemory = config.max_overall_mem;
+  memPerFrame = config.mem_per_frame;
+  minMemPerProc = config.min_mem_per_proc;
+  maxMemPerProc = config.max_mem_per_proc;
 
   memory_manager_ = std::make_unique<MemoryManager>(config.max_overall_mem);
   mem_per_proc_ = config.min_mem_per_proc;
