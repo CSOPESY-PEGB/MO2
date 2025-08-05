@@ -77,7 +77,10 @@ void Scheduler::CPUWorker::run(){
                 InstructionExecutionInfo info = current_task_->step(); // Execute instruction
                 last_step_info_ = info; // Store this for the Scheduler to inspect
 
-                if (info.result == InstructionResult::PAGE_FAULT) { has_page_faulted_ = true; }
+                if (info.result == InstructionResult::PAGE_FAULT) { 
+                  scheduler_.memory_manager_->request_page_fault(current_task_->processID, info.faulting_virtual_address, current_task_);
+                  has_page_faulted_ = true; 
+                }
                 else if (info.result == InstructionResult::PROCESS_COMPLETE) { 
                   has_completed_task_ = true; 
                 }
@@ -130,13 +133,18 @@ void Scheduler::dispatch(){
 
     //if a free cpu exists try to pop, 
     find_free_cpu_and_assign(); //assign process to the free cpu.
+
     //signal all cores to run; IMPORTANT; all cores must participate even when idle; this function also blocks until all cores have participated 
     signal_execute(); 
 
-    //suspend all processes to handle page faults; not ideal in real world system but for this simulation ensures deterministic behavior and no deadlocks
-    // memory_manager_->handle_page_faults(); 
 
+    //suspend all processes to handle page faults; not ideal in real world system but for this simulation ensures deterministic behavior and no deadlocks
+    //memory_manager_->handle_page_faults(); 
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(15));
     ticks_++;
+
+
     
   }
 }
@@ -177,8 +185,8 @@ bool Scheduler::find_idle_cpu(){
   active_cores_ = 0;
 
   for(auto const& cpu: cpu_workers_){
-    
     std::unique_lock<std::mutex> worker_lock(cpu->mutex_); // Acquire worker's mutex
+
     if(cpu->has_completed_task_){
       
       std::shared_ptr<PCB> pcb = cpu->current_task_; // Read current_task_ safely
@@ -244,6 +252,7 @@ void Scheduler::generate_process() {
     // Use member variables for min/max memory per process (from Config)
     std::uniform_int_distribution<> dist(minMemPerProc, maxMemPerProc); 
     size_t memory_size = dist(gen);
+
    
     // Generate random instructions using captured config values
     auto instructions = instruction_generator_.generateRandomProgram(
@@ -253,6 +262,7 @@ void Scheduler::generate_process() {
       minMemPerProc, // These are for instruction generation context (check your InstructionGenerator)
       maxMemPerProc  // (match your existing usage in instruction_generator)
     );
+
    
     // Check if the process can fit in the allocated memory size
     // (The +64 seems to be a fixed overhead from your original code)
@@ -263,6 +273,7 @@ void Scheduler::generate_process() {
     } else {
       auto pcb = std::make_shared<PCB>(process_name, instructions, memory_size, memPerFrame);
       submit_process(pcb); // Submit the newly created process to the ready queue
+
     }
 }
 
@@ -355,10 +366,10 @@ void Scheduler::stop() {
 }
 
 void Scheduler::submit_process(std::shared_ptr<PCB> pcb) {
-  std::cout << "DEBUG DOES IT EVEN REACH HERE?" << std::endl;
   { 
     std::lock_guard<std::mutex> lock(map_mutex_);
     all_processes_map_[pcb->processName] = pcb;
+
     memory_manager_->submit(pcb); //write process to backing store.
   }
   ready_queue_.push(std::move(pcb));

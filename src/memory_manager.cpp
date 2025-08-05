@@ -60,6 +60,7 @@ void MemoryManager::handle_page_faults(){
         page_fault_reqs.pop();
         handle_page_fault(request);
     }
+    memory_mutex_.unlock();
 }
 
 void MemoryManager::handle_page_fault(PageFaultRequest request){
@@ -76,14 +77,11 @@ void MemoryManager::handle_page_fault(PageFaultRequest request){
 
 }
 
-std::shared_ptr<PCB> MemoryManager::find_process_by_pid(uint32_t id){
-    
-}
 
 void MemoryManager::submit(std::shared_ptr<PCB> process){
     memory_mutex_.lock();
     process->store(bs);
-    std::cout << "WRITTEN TO " << bs << std::endl;
+    memory_mutex_.unlock();
 }
 
 
@@ -92,6 +90,7 @@ void MemoryManager::submit(std::shared_ptr<PCB> process){
 void MemoryManager::request_page_fault(uint32_t pcb_id, uint32_t page_num, std::shared_ptr<PCB> process){
     memory_mutex_.lock();
     page_fault_reqs.emplace(pcb_id, page_num, process);
+    memory_mutex_.unlock();
 }
 
 void MemoryManager::coalesce_free_blocks(std::list<MemoryBlock>::iterator newly_freed_block) {
