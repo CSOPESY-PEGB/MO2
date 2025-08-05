@@ -33,7 +33,7 @@ class Scheduler {
   void submit_process(std::shared_ptr<PCB> pcb);
   void print_status() const;
 
-  void start_batch_generation(const Config& config);
+  void start_batch_generation();
   void stop_batch_generation();
   void calculate_cpu_utilization(size_t& total_cores, size_t& cores_used,
                                  double& cpu_utilization) const;
@@ -67,49 +67,7 @@ class Scheduler {
   
  private:
   friend class CpuWorker;
-  friend class CPUWorker;
   
-  // --- Nested CPUWorker Class Definition ---
-  class CPUWorker {
-  public:
-    CPUWorker(int core_id, Scheduler& scheduler);
-
-    void start();
-    void join();
-    void stop();
-    
-    // assign_task now only sets the task; no internal cv.notify_one related to immediate execution.
-    void assign_task(std::shared_ptr<PCB> pcb, int time_quantum);
-
-    bool is_idle() const { return idle_.load(); };
-
-    // Public members for Scheduler to inspect/manage worker state
-    std::shared_ptr<PCB> current_task_; // The PCB currently held by this core
-    std::atomic<bool> idle_{true};       // True if no PCB is assigned
-    
-    // Atomic flags to report status back to the Scheduler for processing this tick
-    std::atomic<bool> has_completed_task_{false}; 
-    std::atomic<bool> has_page_faulted_{false}; 
-    std::atomic<bool> needs_preemption_{false}; 
-    InstructionExecutionInfo last_step_info_; // Stores info if a step was executed (e.g., VA for fault)
-    
-    int core_id_; // Core ID (public for reporting)
-
-    std::mutex mutex_; // Protects `current_task_` and internal counters/flags
-
-  private:
-    std::thread thread_;
-    Scheduler& scheduler_; // Reference to the parent scheduler
-    std::atomic<bool> shutdown_requested_{false};
-
-    // Internal state specific to the current task on this core
-    int time_quantum_assigned_ = -1; // -1 for FCFS (run until completion), or assigned RR quantum
-    size_t steps_executed_on_this_core_ = 0; // Steps run within this worker's current assignment
-    size_t ticks_since_last_instruction_ = 0; // Counter for `delay_per_exec_`
-
-    void run(); // The main loop that processes ticks
-  };
-
   bool find_idle_cpu();
   void signal_execute();
   void find_free_cpu_and_assign();
@@ -119,8 +77,7 @@ class Scheduler {
   int total_cores_{0};
 
   std::atomic<bool> running_;
-  std::vector<std::unique_ptr<CpuWorker>> cpu_workers_; // External CpuWorker for compatibility
-  std::vector<std::unique_ptr<CPUWorker>> vmstat_cpu_workers_; // Nested CPUWorker for vmstat integration
+  std::vector<std::unique_ptr<CpuWorker>> cpu_workers_; // External CpuWorker with vmstat integration
 
   ThreadSafeQueue<std::shared_ptr<PCB>> ready_queue_;
 
@@ -162,6 +119,9 @@ class Scheduler {
   size_t memPerFrame{64};
   size_t minMemPerProc{512};
   size_t maxMemPerProc{1024};
+
+  size_t minInstructions{100};
+  size_t maxInstructions{100};
 
   SchedulingAlgorithm algorithm_{SchedulingAlgorithm::FCFS};
   
