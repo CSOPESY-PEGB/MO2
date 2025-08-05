@@ -16,14 +16,8 @@ struct Config {
   uint32_t minInstructions{1000};
   uint32_t maxInstructions{2000};
   uint32_t delayCyclesPerInstruction{0};
-  // old
-  // uint32_t maxOverallMemory{1024};
-  // uint32_t memPerFrame{64};
-  // uint32_t minMemPerProc{512};
-  // uint32_t maxMemPerProc{1024};
 
-  // updated
-  // default values
+  // Memory related default values
   uint32_t max_overall_mem{16384};
   uint32_t mem_per_frame{16};
   uint32_t min_mem_per_proc{4096};

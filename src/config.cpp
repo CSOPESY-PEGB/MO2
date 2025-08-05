@@ -16,24 +16,15 @@ bool is_power_of_2(uint32_t value) {
 }
 
 uint32_t validate_memory_value(uint32_t value, const std::string& param_name) {
-  // Different validation rules for different parameters
   if (param_name == "mem-per-frame") {
-    // Frame sizes can be smaller, just need to be power of 2
     if (value < 2 || value > 65536) {
-      throw std::runtime_error("Invalid memory allocation for " + param_name + ": " + std::to_string(value) + 
+      throw std::runtime_error("Invalid memory allocation for " + param_name + ": " + std::to_string(value) +
                                ". Must be between 2 and 65536 bytes.");
     }
   }
-  // else {
-  //   // Process memory allocations must be at least 64 bytes
-  //   if (value < 64 || value > 65536) {
-  //     throw std::runtime_error("Invalid memory allocation for " + param_name + ": " + std::to_string(value) +
-  //                              ". Must be between 64 and 65536 bytes.");
-  //   }
-  // }
-  
+
   if (!is_power_of_2(value)) {
-    throw std::runtime_error("Invalid memory allocation for " + param_name + ": " + std::to_string(value) + 
+    throw std::runtime_error("Invalid memory allocation for " + param_name + ": " + std::to_string(value) +
                              ". Must be a power of 2.");
   }
   return value;
@@ -57,7 +48,7 @@ Config::Config(uint32_t cpu, SchedulingAlgorithm sched, uint32_t quantum,
       mem_per_frame{validate_memory_value(mem_per_frame, "mem-per-frame")},
       min_mem_per_proc{validate_memory_value(min_mem_per_proc, "min-mem-per-proc")},
       max_mem_per_proc{validate_memory_value(max_mem_per_proc, "max-mem-per-proc")} {
-  if (scheduler != SchedulingAlgorithm::RoundRobin) {
+  if (scheduler != SchedulingAlgorithm::RoundRobin && quantumCycles == 0) {
     quantumCycles = 1;
   }
 }
@@ -97,18 +88,14 @@ Config Config::fromFile(const std::filesystem::path& file) {
     }
   }
 
-  if (cfg.scheduler != SchedulingAlgorithm::RoundRobin) {
-    // Quantum is irrelevant for FCFS, but a value of 0 can cause bugs.
-    // Set it to a safe, non-zero default.
+  if (cfg.scheduler != SchedulingAlgorithm::RoundRobin && cfg.quantumCycles == 0) {
     cfg.quantumCycles = 1;
-  } else if (cfg.quantumCycles == 0) {
-    // A quantum of 0 for Round Robin is invalid. Default to 1.
+  } else if (cfg.scheduler == SchedulingAlgorithm::RoundRobin && cfg.quantumCycles == 0) {
     std::cout << "Warning: quantum-cycles was 0, defaulting to 1 for Round Robin." << std::endl;
     cfg.quantumCycles = 1;
   }
 
-
   return cfg;
 }
 
-}  // namespace osemu
+}

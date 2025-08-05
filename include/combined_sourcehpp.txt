@@ -1,0 +1,602 @@
+#ifndef OSEMU_COMMANDS_H_
+#define OSEMU_COMMANDS_H_
+
+#include <string_view>
+#include <unordered_map>
+
+namespace osemu {
+
+enum class Commands {
+  Initialize,
+  Screen,
+  SchedulerStart,
+  SchedulerStop,
+  ReportUtil,
+  Clear,
+  Exit,
+  ProcessSmi,
+  Vmstat
+};
+
+Commands from_str(std::string_view cmd);
+
+}
+
+#endif
+#ifndef OSEMU_CONFIG_H_
+#define OSEMU_CONFIG_H_
+
+#include <cstdint>
+#include <filesystem>
+
+namespace osemu {
+
+enum class SchedulingAlgorithm { FCFS, RoundRobin };
+
+struct Config {
+  uint32_t cpuCount{4};
+  SchedulingAlgorithm scheduler{SchedulingAlgorithm::RoundRobin};
+  uint32_t quantumCycles{5};
+  uint32_t processGenFrequency{1};
+  uint32_t minInstructions{1000};
+  uint32_t maxInstructions{2000};
+  uint32_t delayCyclesPerInstruction{0};
+
+  // Memory related default values
+  uint32_t max_overall_mem{16384};
+  uint32_t mem_per_frame{16};
+  uint32_t min_mem_per_proc{4096};
+  uint32_t max_mem_per_proc{4096};
+
+  explicit Config(uint32_t cpu = 4,
+                  SchedulingAlgorithm sched = SchedulingAlgorithm::RoundRobin,
+                  uint32_t quantum = 5, uint32_t freq = 1,
+                 uint32_t minIns = 1000, uint32_t maxIns = 2000,
+                 uint32_t delay = 0, uint32_t mem_per_frame = 16,
+                 uint32_t min_mem_per_proc = 4096, uint32_t max_mem_per_proc = 4096,
+                 uint32_t max_overall_mem = 16384);
+
+  static Config fromFile(const std::filesystem::path& file);
+};
+
+}
+
+#endif
+#ifndef OSEMU_CONSOLE_H_
+#define OSEMU_CONSOLE_H_
+
+namespace osemu {
+
+void console_prompt();
+
+}
+
+#endif 
+#ifndef OSEMU_DISPATCHER_H_
+#define OSEMU_DISPATCHER_H_
+
+#include <string>
+#include <vector>
+
+#include "commands.hpp"
+
+namespace osemu {
+
+class Config;
+class Scheduler;
+
+void dispatch(Commands cmd, std::vector<std::string>& args, Config& cfg,
+              Scheduler& scheduler);
+
+}  
+
+#endif
+#ifndef OSEMU_INSTRUCTION_EVALUATOR_H_
+#define OSEMU_INSTRUCTION_EVALUATOR_H_
+
+#include <string>
+#include <vector>
+#include <memory>
+#include <unordered_map>
+
+#include "instruction_parser.hpp"
+
+namespace osemu {
+
+class MemoryManager;
+
+class InstructionEvaluator {
+private:
+  std::unordered_map<std::string, uint16_t>& symbol_table_;
+  std::vector<std::string>& output_log_;
+  std::string& process_name_;
+  size_t& memory_size_ref_;
+
+public:
+  InstructionEvaluator(
+      std::unordered_map<std::string, uint16_t>& symbol_table,
+      std::vector<std::string>& output_log,
+      std::string& process_name,
+      size_t& memory_size
+  );
+
+  uint16_t get_or_create_variable_address(const std::string& var_name);
+  void evaluate(const Expr& expr, MemoryManager& mm, uint32_t pcb_id);
+  uint16_t resolve_atom_value(const Atom& atom, MemoryManager& mm, uint32_t pcb_id);
+  std::string print_atom_to_string(const Atom& atom, MemoryManager& mm, uint32_t pcb_id);
+
+  const std::vector<std::string>& get_output_log() const { return output_log_; }
+};
+
+}
+
+#endif
+#ifndef OSEMU_INSTRUCTION_GENERATOR_H_
+#define OSEMU_INSTRUCTION_GENERATOR_H_
+
+#include <vector>
+#include <random>
+#include <cstdint>
+#include "instruction_parser.hpp"
+
+namespace osemu {
+
+class InstructionGenerator {
+public:
+  InstructionGenerator();
+
+  std::vector<Expr> generateRandomProgram(
+      uint32_t min_instructions,
+      uint32_t max_instructions,
+      const std::string& process_name,
+      size_t memory_size,
+      uint32_t frame_size);
+
+private:
+  std::mt19937 rng;
+};
+
+}
+
+#endif
+#ifndef OSEMU_INSTRUCTION_PARSER_H_
+#define OSEMU_INSTRUCTION_PARSER_H_
+
+#include <string>
+#include <vector>
+#include <memory>
+#include <unordered_map>
+
+namespace osemu {
+
+struct Atom {
+    enum Type { STRING, NAME, NUMBER };
+    Type type;
+    std::string string_value;
+    uint16_t number_value;
+
+    Atom(std::string s, Type t) : type(t), string_value(std::move(s)), number_value(0) {}
+    Atom(uint16_t n) : type(NUMBER), number_value(n) {}
+
+    std::string to_string() const {
+        switch (type) {
+            case STRING:
+            case NAME:
+                return string_value;
+            case NUMBER:
+                return std::to_string(number_value);
+        }
+        return "UNKNOWN_ATOM";
+    }
+};
+
+struct Expr {
+    enum Type { DECLARE, CALL, CONSTANT, VOID_EXPR, ADD, SUB, FOR, READ, WRITE };
+    Type type;
+
+    std::string var_name;
+    std::unique_ptr<Atom> atom_value; // For single-arg calls, DECLARE, READ
+    std::unique_ptr<Atom> lhs;        // For ADD, SUB, WRITE, concat-CALL
+    std::unique_ptr<Atom> rhs;        // For ADD, SUB, WRITE, concat-CALL
+    std::unique_ptr<Atom> n;          // For FOR loops
+    std::vector<Expr> body;           // For FOR loops
+
+    Expr(Type t);
+
+    // Rule of 5 for proper resource management with unique_ptrs
+    Expr(const Expr& other);
+    Expr& operator=(const Expr& other);
+    Expr(Expr&& other) noexcept;
+    Expr& operator=(Expr&& other) noexcept;
+
+    static Expr make_declare(std::string name, std::unique_ptr<Atom> value);
+    static Expr make_call(std::string name, std::unique_ptr<Atom> arg);
+    static Expr make_add(std::string var, std::unique_ptr<Atom> lhs, std::unique_ptr<Atom> rhs);
+    static Expr make_sub(std::string var, std::unique_ptr<Atom> lhs, std::unique_ptr<Atom> rhs);
+    static Expr make_for(std::vector<Expr> body, std::unique_ptr<Atom> n);
+    static Expr make_read(std::string var_name, std::unique_ptr<Atom> address);
+    static Expr make_write(std::unique_ptr<Atom> address, std::unique_ptr<Atom> value);
+    static Expr make_call_concat(std::string name, std::unique_ptr<Atom> lhs, std::unique_ptr<Atom> rhs);
+};
+
+struct ParseResult {
+    bool success;
+    std::string remaining;
+    std::string error_msg;
+
+    ParseResult(bool s, const std::string& r, const std::string& e = "")
+        : success(s), remaining(r), error_msg(e) {}
+};
+
+class InstructionParser {
+public:
+    static ParseResult parse_program(const std::string& input, std::vector<Expr>& result);
+
+private:
+    static std::string ltrim(const std::string& input);
+    static bool consume_tag(const std::string& input, const std::string& tag, std::string& remaining);
+
+    static ParseResult parse_string(const std::string& input, Atom& result);
+    static ParseResult parse_name(const std::string& input, Atom& result);
+    static ParseResult parse_number(const std::string& input, Atom& result);
+    static ParseResult parse_address(const std::string& input, Atom& result);
+    static ParseResult parse_atom(const std::string& input, Atom& result);
+
+    static ParseResult parse_declare(const std::string& input, Expr& result);
+    static ParseResult parse_add(const std::string& input, Expr& result);
+    static ParseResult parse_sub(const std::string& input, Expr& result);
+    static ParseResult parse_read(const std::string& input, Expr& result);
+    static ParseResult parse_write(const std::string& input, Expr& result);
+    static ParseResult parse_call(const std::string& input, Expr& result);
+    static ParseResult parse_for(const std::string& input, Expr& result);
+    static ParseResult parse_expr(const std::string& input, Expr& result);
+};
+
+}
+
+#endif
+#ifndef OSEMU_MEMORY_MANAGER_H_
+#define OSEMU_MEMORY_MANAGER_H_
+
+#include <atomic>
+#include <cstdint>
+#include <fstream>
+#include <memory>
+#include <mutex>
+#include <stdexcept>
+#include <string>
+#include <unordered_map>
+#include <vector>
+
+// --- Custom Exception Classes ---
+class PageFaultException : public std::exception {
+public:
+    const char* what() const noexcept override {
+        return "A recoverable page fault occurred.";
+    }
+};
+
+class ResourceLimitException : public std::runtime_error {
+public:
+  ResourceLimitException(const std::string& msg) : std::runtime_error(msg) {}
+};
+
+class AccessViolationException : public std::runtime_error {
+public:
+    AccessViolationException(const std::string& msg) : std::runtime_error(msg) {}
+};
+
+namespace osemu {
+
+class PCB;
+class Config;
+
+struct PageTableEntry {
+    bool is_valid = false;
+    bool is_dirty = false;
+    bool is_referenced = false;
+    uint32_t frame_id = 0;
+};
+
+struct Frame {
+    uint32_t id;
+    uint32_t pcb_id = 0;
+    uint32_t page_id = 0;
+    bool is_free = true;
+
+    Frame(uint32_t frame_id) : id(frame_id) {}
+};
+
+class MemoryManager {
+public:
+    explicit MemoryManager(const Config& config);
+
+    bool register_process(std::shared_ptr<PCB> pcb);
+    void cleanup_process(uint32_t pcb_id);
+
+    uint16_t read_u16(uint32_t pcb_id, uint32_t virtual_address);
+    void write_u16(uint32_t pcb_id, uint32_t virtual_address, uint16_t value);
+
+    void generate_process_smi_report(std::ostream& out, const std::unordered_map<std::string, std::shared_ptr<PCB>>& all_processes) const;
+    void generate_vmstat_report(std::ostream& out) const;
+
+    bool is_registered(uint32_t pcb_id) const;
+    uint32_t get_free_frame_count() const;
+
+private:
+    // --- UPDATED DECLARATIONS ---
+    uint32_t translate_address(uint32_t pcb_id, uint32_t virtual_address, bool is_write);
+    void handle_page_fault(uint32_t pcb_id, uint32_t page_id);
+    // ----------------------------
+
+    uint32_t find_victim_frame();
+    uint32_t allocate_frame();
+    void evict_page(uint32_t frame_id);
+
+    void save_page_to_backing_store(uint32_t pcb_id, uint32_t page_id, uint32_t frame_id);
+    bool load_page_from_backing_store(uint32_t pcb_id, uint32_t page_id, uint32_t frame_id);
+
+    uint32_t total_memory_size_;
+    uint32_t frame_size_;
+    uint32_t num_frames_;
+    std::string backing_store_filename_;
+
+    std::vector<uint8_t> physical_memory_;
+    std::vector<Frame> frames_;
+    std::unordered_map<uint32_t, std::vector<PageTableEntry>> page_tables_;
+
+    mutable std::mutex memory_mutex_;
+
+    mutable std::atomic<size_t> pages_paged_in_{0};
+    mutable std::atomic<size_t> pages_paged_out_{0};
+};
+
+}
+
+#endif
+#ifndef OSEMU_PARSER_H_
+#define OSEMU_PARSER_H_
+
+#include <string>
+#include <vector>
+
+namespace osemu {
+
+std::vector<std::string> ParseTokens(const std::string& line);
+
+}  
+
+#endif
+#ifndef OSEMU_PROCESS_CONTROL_BLOCK_H_
+#define OSEMU_PROCESS_CONTROL_BLOCK_H_
+
+#include <atomic>
+#include <chrono>
+#include <memory>
+#include <optional>
+#include <string>
+#include <vector>
+#include <unordered_map>
+
+#include "instruction_evaluator.hpp"
+
+namespace osemu {
+
+class MemoryManager;
+
+class PCB : public std::enable_shared_from_this<PCB> {
+private:
+  bool terminated_ = false;
+  std::string termination_reason_ = "";
+  size_t memory_size_;
+  int consecutive_faults_ = 0;
+
+public:
+  PCB(std::string procName, const std::vector<Expr>& instrs, size_t memory_size);
+
+  static std::atomic<uint32_t> next_pid;
+
+  bool step(MemoryManager& mm);
+  bool executeCurrentInstruction(MemoryManager& mm);
+
+  bool isTerminated() const { return terminated_; }
+  size_t getMemorySize() const { return memory_size_; }
+  void terminate(const std::string& reason);
+  const std::string& getTerminationReason() const { return termination_reason_; }
+
+  bool isComplete() const;
+  std::string status() const;
+  const std::vector<std::string>& getExecutionLogs() const;
+
+  void setSleepCycles(uint16_t cycles);
+  bool isSleeping() const;
+  void decrementSleepCycles();
+
+  uint32_t processID;
+  std::string processName;
+  size_t currentInstruction;
+  size_t totalInstructions;
+  std::chrono::system_clock::time_point creationTime;
+  std::optional<int> assignedCore;
+  std::chrono::system_clock::time_point finishTime;
+  uint16_t sleepCyclesRemaining;
+
+  std::vector<Expr> instructions;
+  std::unordered_map<std::string, uint16_t> symbol_table;
+  std::vector<std::string> output_log;
+  std::unique_ptr<InstructionEvaluator> evaluator;
+};
+
+}
+
+#endif
+#ifndef OSEMU_SCHEDULER_H_
+#define OSEMU_SCHEDULER_H_
+
+#include <atomic>
+#include <memory>
+#include <mutex>
+#include <thread>
+#include <vector>
+#include <unordered_map>
+#include <condition_variable>
+
+#include "process_control_block.hpp"
+#include "thread_safe_queue.hpp"
+#include "instruction_generator.hpp"
+#include "config.hpp"
+#include "memory_manager.hpp"
+#include "cpu_worker.h"
+
+namespace osemu {
+
+class Scheduler {
+ public:
+  Scheduler();
+  ~Scheduler();
+
+  void start(const Config& config);
+  void stop();
+  void submit_process(std::shared_ptr<PCB> pcb);
+
+  void start_batch_generation();
+  void stop_batch_generation();
+
+  void print_status() const;
+  void generate_full_report(const std::string& filename = "csopesy-log.txt") const;
+
+  void move_to_running(std::shared_ptr<PCB> pcb);
+  void move_to_finished(std::shared_ptr<PCB> pcb);
+  void move_to_ready(std::shared_ptr<PCB> pcb);
+
+  std::shared_ptr<PCB> find_process_by_name(const std::string& name) const;
+
+  MemoryManager* get_memory_manager() { return memory_manager_.get(); }
+  bool is_generating() const { return batch_generating_.load(); }
+
+  // For use by CpuWorker
+  bool IsRunning() const { return running_.load(); }
+  size_t get_ticks() const { return ticks_.load(); }
+  std::mutex& GetClockMutex() { return clock_mutex_; }
+  std::condition_variable& GetClockCondition() { return clock_cv_; }
+  void block_process(std::shared_ptr<PCB> pcb);
+
+ private:
+  void dispatch();
+  void global_clock();
+
+  void calculate_cpu_utilization(size_t& total_cores, size_t& cores_used, double& cpu_utilization) const;
+
+  Config config_;
+  std::unique_ptr<MemoryManager> memory_manager_;
+  std::vector<std::unique_ptr<CpuWorker>> cpu_workers_;
+
+  std::atomic<bool> running_;
+  std::atomic<bool> batch_generating_;
+  ThreadSafeQueue<std::shared_ptr<PCB>> ready_queue_;
+  mutable std::mutex running_mutex_;
+  std::vector<std::shared_ptr<PCB>> running_processes_;
+
+  mutable std::mutex finished_mutex_;
+  std::vector<std::shared_ptr<PCB>> finished_processes_;
+
+  mutable std::mutex map_mutex_;
+  std::unordered_map<std::string, std::shared_ptr<PCB>> all_processes_map_;
+
+  std::thread dispatch_thread_;
+  std::thread global_clock_thread_;
+  std::unique_ptr<std::thread> batch_generator_thread_;
+
+  InstructionGenerator instruction_generator_;
+  std::atomic<int> process_counter_{0};
+
+  std::atomic<size_t> ticks_{0};
+  mutable std::mutex clock_mutex_;
+  std::condition_variable clock_cv_;
+};
+
+}
+
+#endif
+#ifndef OSEMU_SCREEN_H_
+#define OSEMU_SCREEN_H_
+
+#include <string>
+#include <vector>
+
+#include "config.hpp"
+
+namespace osemu {
+
+class Scheduler;
+
+void screen(std::vector<std::string>& args, Scheduler& scheduler, Config& config);
+
+}  
+
+#endif
+#ifndef OSEMU_THREAD_SAFE_QUEUE_H_
+#define OSEMU_THREAD_SAFE_QUEUE_H_
+
+#include <condition_variable>
+#include <memory>
+#include <mutex>
+#include <deque>
+#include <atomic>
+
+template <typename T>
+class ThreadSafeQueue {
+public:
+  ThreadSafeQueue() : shutdown_requested_(false) {}
+
+  void push(T value) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (shutdown_requested_.load()) return;
+    queue_.push_back(std::move(value));
+    cond_.notify_one();
+  }
+
+  void push_front(T value) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (shutdown_requested_.load()) return;
+    queue_.push_front(std::move(value));
+    cond_.notify_one();
+  }
+
+  void shutdown(){
+    std::lock_guard<std::mutex> lock(mutex_);
+    shutdown_requested_ = true;
+    cond_.notify_all();
+  }
+
+  bool wait_and_pop(T& value) {
+    std::unique_lock<std::mutex> lock(mutex_);
+    cond_.wait(lock, [this] { return !queue_.empty() || shutdown_requested_.load(); });
+
+    if (shutdown_requested_.load() && queue_.empty()) {
+      return false;
+    }
+
+    value = std::move(queue_.front());
+    queue_.pop_front();
+    return true;
+  }
+
+  void empty() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    queue_.clear();
+  }
+
+  std::deque<T> get_copy() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return queue_;
+  }
+
+private:
+  mutable std::mutex mutex_;
+  std::deque<T> queue_;
+  std::condition_variable cond_;
+  std::atomic<bool> shutdown_requested_;
+};
+
+#endif

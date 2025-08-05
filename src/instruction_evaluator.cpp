@@ -1,6 +1,6 @@
 #include "instruction_evaluator.hpp"
 
-#include "memory_manager.hpp" // Needs full definition to call methods
+#include "memory_manager.hpp"
 #include <format>
 #include <chrono>
 
@@ -26,11 +26,13 @@ uint16_t InstructionEvaluator::get_or_create_variable_address(const std::string&
     }
 
     // Stack grows downwards from the top of virtual memory. Each var is 2 bytes.
+    // The stack size itself is 64 bytes total.
     size_t new_var_offset = (symbol_table_.size() + 1) * 2;
-    if (memory_size_ref_ < 64 || new_var_offset > 64) {
+    if (new_var_offset > 64) {
          throw std::runtime_error("Stack overflow: too many variables for 64-byte stack.");
     }
 
+    // Calculate virtual address relative to the end of the process's memory space
     uint16_t new_address = memory_size_ref_ - new_var_offset;
     symbol_table_[var_name] = new_address;
     return new_address;
@@ -41,7 +43,7 @@ uint16_t InstructionEvaluator::resolve_atom_value(const Atom& atom, MemoryManage
         case Atom::NAME:
             if (symbol_table_.count(atom.string_value)) {
                 uint16_t var_virtual_addr = symbol_table_.at(atom.string_value);
-                // DELEGATE memory reading to the MemoryManager
+                // Delegate memory reading to the MemoryManager
                 return mm.read_u16(pcb_id, var_virtual_addr);
             }
             return 0; // Per spec, uninitialized variable is 0.
@@ -82,8 +84,6 @@ std::string InstructionEvaluator::print_atom_to_string(const Atom& atom, MemoryM
 
 void InstructionEvaluator::evaluate(const Expr& expr, MemoryManager& mm, uint32_t pcb_id) {
     switch (expr.type) {
-        // DECLARE, READ, WRITE, and SLEEP are handled in the PCB now.
-        // This function handles the rest.
         case Expr::ADD: {
             uint16_t left_val = resolve_atom_value(*expr.lhs, mm, pcb_id);
             uint16_t right_val = resolve_atom_value(*expr.rhs, mm, pcb_id);
@@ -108,7 +108,7 @@ void InstructionEvaluator::evaluate(const Expr& expr, MemoryManager& mm, uint32_
             std::string output;
             if (expr.atom_value) { // This handles PRINT(arg)
               output = print_atom_to_string(*expr.atom_value, mm, pcb_id);
-            } else if (expr.lhs && expr.rhs) { // This handles PRINT(arg1 + arg2)
+            } else if (expr.lhs && expr.rhs) { // This handles PRINT("text" + var)
               output = print_atom_to_string(*expr.lhs, mm, pcb_id) +
                        print_atom_to_string(*expr.rhs, mm, pcb_id);
             } else {
@@ -119,9 +119,8 @@ void InstructionEvaluator::evaluate(const Expr& expr, MemoryManager& mm, uint32_
             auto timestamp = std::format("{:%m/%d/%Y %I:%M:%S %p}", now);
             output_log_.push_back(std::format("({}) \"{}\"", timestamp, output));
           } else {
-            // This is for SLEEP(x), etc.
-            // Your existing logic for SLEEP inside PCB::executeCurrentInstruction is fine.
-            // This part of the evaluator should only handle non-special calls like PRINT.
+            // SLEEP is handled in PCB::executeCurrentInstruction before calling this.
+            // This part of the evaluator should only handle non-special calls.
             throw std::runtime_error("Unknown function call in evaluator: " + expr.var_name);
           }
           break;
@@ -139,10 +138,10 @@ void InstructionEvaluator::evaluate(const Expr& expr, MemoryManager& mm, uint32_
         }
 
         default:
-            // This function should not be called for other instruction types.
+            // This function should not be called for DECLARE, READ, WRITE, or SLEEP.
             // If it is, it's a logic error in the PCB.
             break;
     }
 }
 
-} // namespace osemu
+}

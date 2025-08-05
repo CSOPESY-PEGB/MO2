@@ -7,18 +7,16 @@
 #include <mutex>
 #include <thread>
 
-#include "process_control_block.hpp"
-
 namespace osemu {
 
+class PCB; // Forward declaration is sufficient
 class Scheduler;
 
 class CpuWorker {
 public:
   CpuWorker(int core_id, Scheduler& scheduler);
-  ~CpuWorker() = default;
+  ~CpuWorker();
 
-  // Disable copy/move operations
   CpuWorker(const CpuWorker&) = delete;
   CpuWorker& operator=(const CpuWorker&) = delete;
 
@@ -42,10 +40,14 @@ private:
   std::shared_ptr<PCB> current_task_{nullptr};
   int time_quantum_{0};
 
+  size_t last_fault_instruction_ptr_ = 0;
+  int consecutive_fault_count_ = 0;
+  size_t instruction_ptr_at_window_start_ = 0;
+  size_t tick_at_window_start_ = 0;
   mutable std::mutex mutex_;
   std::condition_variable condition_variable_;
 };
 
-} // namespace osemu
+}
 
 #endif

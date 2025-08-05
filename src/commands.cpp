@@ -8,18 +8,17 @@ namespace osemu {
 namespace {
 using CommandMap = std::unordered_map<std::string_view, Commands>;
 const CommandMap cmd_map{
-    {"initialize", Commands::Initialize},
-    {"screen", Commands::Screen},
-    {"scheduler-start", Commands::SchedulerStart},
-    {"scheduler-test", Commands::SchedulerStart},
-    {"scheduler-stop", Commands::SchedulerStop},
-    {"report-util", Commands::ReportUtil},
-    {"clear", Commands::Clear},
-    {"exit", Commands::Exit},
-    {"process-smi", Commands::ProcessSmi},
-    {"vmstat", Commands::Vmstat},
-
-};
+      {"initialize", Commands::Initialize},
+      {"screen", Commands::Screen},
+      {"scheduler-start", Commands::SchedulerStart},
+      {"scheduler-test", Commands::SchedulerStart}, // Alias from original code
+      {"scheduler-stop", Commands::SchedulerStop},
+      {"report-util", Commands::ReportUtil},
+      {"clear", Commands::Clear},
+      {"exit", Commands::Exit},
+      {"process-smi", Commands::ProcessSmi},
+      {"vmstat", Commands::Vmstat},
+  };
 }
 
 Commands from_str(std::string_view cmd) {

@@ -2,15 +2,12 @@
 
 #include <format>
 #include <sstream>
-
-// Needs the full definition to call methods
 #include "memory_manager.hpp"
 
 namespace osemu {
 
 std::atomic<uint32_t> PCB::next_pid{1};
 
-// --- UPDATED CONSTRUCTOR ---
 PCB::PCB(std::string procName, const std::vector<Expr>& instrs, size_t memory_size)
     : processID(next_pid++),
       processName(std::move(procName)),
@@ -20,19 +17,16 @@ PCB::PCB(std::string procName, const std::vector<Expr>& instrs, size_t memory_si
       assignedCore(std::nullopt),
       sleepCyclesRemaining(0),
       instructions(instrs),
-      memory_size_(memory_size), // Initialize the new member variable
-      heap_memory(memory_size, 0) // Kept for compatibility, but not used by paging
+      memory_size_(memory_size)
 {
-    // Initialize the evaluator with the correct constructor
     evaluator = std::make_unique<InstructionEvaluator>(
         this->symbol_table,
         this->output_log,
         this->processName,
-        this->memory_size_ // Pass the size by reference
+        this->memory_size_
     );
 }
 
-// --- NEW METHOD IMPLEMENTATION ---
 void PCB::terminate(const std::string& reason) {
     if (!terminated_) {
         terminated_ = true;
@@ -41,37 +35,36 @@ void PCB::terminate(const std::string& reason) {
     }
 }
 
-// --- UPDATED ---
-void PCB::step(MemoryManager& mm) {
+bool PCB::isComplete() const {
+  return currentInstruction >= totalInstructions;
+}
+bool PCB::step(MemoryManager& mm) {
     if (isSleeping()) {
         decrementSleepCycles();
-        return;
+        return true;
     }
     if (currentInstruction < instructions.size() && !isTerminated()) {
-        // executeCurrentInstruction is now responsible for incrementing the instruction pointer
-        executeCurrentInstruction(mm);
+        return executeCurrentInstruction(mm);
     }
+    return true;
 }
 
-// --- UPDATED ---
-bool PCB::isComplete() const {
-    return currentInstruction >= totalInstructions;
-}
-
-// --- UPDATED ---
 std::string PCB::status() const {
     auto truncated_creation_time = std::chrono::time_point_cast<std::chrono::seconds>(creationTime);
     auto creation_time_str = std::format("{:%m/%d/%Y %I:%M:%S %p}", truncated_creation_time);
-
     std::ostringstream oss;
     oss << "PID:" << processID << " " << processName << " (" << creation_time_str << ")  ";
-
     if (isTerminated()) {
-        oss << "Terminated         " << currentInstruction << " / "
-            << totalInstructions << " (" << getTerminationReason() << ")";
+        auto truncated_finish_time = std::chrono::time_point_cast<std::chrono::seconds>(finishTime);
+        auto finish_time_str = std::format("{:%H:%M:%S}", truncated_finish_time);
+        oss << "Terminated (" << getTerminationReason() << " at " << finish_time_str << ") "
+            << currentInstruction << " / " << totalInstructions;
     } else if (isComplete()) {
         oss << "Finished           " << totalInstructions << " / "
             << totalInstructions;
+    } else if (isSleeping()) {
+        oss << "Sleeping (" << sleepCyclesRemaining << ") " << currentInstruction
+            << " / " << totalInstructions;
     } else if (assignedCore.has_value()) {
         oss << "Core: " << *assignedCore << "            " << currentInstruction
             << " / " << totalInstructions;
@@ -82,14 +75,14 @@ std::string PCB::status() const {
     return oss.str();
 }
 
-// --- UPDATED --- The core logic for instruction execution with error handling
+// --- THIS IS THE MOST IMPORTANT FIX ---
 bool PCB::executeCurrentInstruction(MemoryManager& mm) {
     if (isComplete() || isTerminated()) {
-        return false;
+        return true; // Not a fault
     }
 
     const auto& instr = instructions[currentInstruction];
-
+    const int FAULT_LIMIT = 50; // After 50 faults in a row, the process is terminated.
     try {
         if (instr.type == Expr::DECLARE) {
             uint16_t value = evaluator->resolve_atom_value(*instr.atom_value, mm, this->processID);
@@ -115,44 +108,27 @@ bool PCB::executeCurrentInstruction(MemoryManager& mm) {
             evaluator->evaluate(instr, mm, this->processID);
         }
 
-        // --- SUCCESS ---
-        // If no exception was thrown, the instruction completed successfully.
         currentInstruction++;
-        return true;
+        return true; // Instruction completed successfully
 
-    } catch (const PageFaultException& pfe) {
-      // NORMAL, recoverable page fault. The page has been loaded.
-      // Do nothing. The instruction pointer is NOT incremented.
-      // The process will re-try this same instruction on the next tick.
+    } catch (const PageFaultException&) {
+      // A page fault occurred. The exception is caught here.
+      // We do not increment the instruction pointer.
+      // We signal the fault to the CpuWorker by returning false.
       return false;
     }catch (const ResourceLimitException& rle) {
-      // --- THE NEW LOGIC TO MATCH THE SPEC ---
-      // A non-fatal resource limit was hit (e.g., symbol table full).
-      // The instruction should be "ignored".
-
-      // We log the event for debugging, which is good practice.
-      output_log.push_back("Warning: " + std::string(rle.what()) + " Instruction ignored.");
-
-      // We INCREMENT the instruction pointer to move on to the next one.
+      output_log.push_back("Warning: " + std::string(rle.what()) + ". Instruction ignored.");
       currentInstruction++;
-
-      // We return 'true' because the step is "complete" from the scheduler's PoV.
-      // The process is healthy and should continue running.
       return true;
-
     } catch (const AccessViolationException& ave) {
-        // FATAL, unrecoverable memory error. Terminate the process.
         terminate(std::string("Access Violation: ") + ave.what());
-        return false;
-
+        return true; // The process is "done" (terminated), not faulted.
     } catch (const std::runtime_error& re) {
-        // Any other fatal error during execution.
         terminate(std::string("Runtime Error: ") + re.what());
-        return false;
+        return true; // The process is "done" (terminated), not faulted.
     }
 }
 
-// --- NO CHANGES NEEDED for the functions below ---
 
 const std::vector<std::string>& PCB::getExecutionLogs() const {
     return evaluator->get_output_log();
@@ -172,4 +148,4 @@ void PCB::decrementSleepCycles() {
     }
 }
 
-} // namespace osemu
+}
