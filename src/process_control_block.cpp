@@ -96,8 +96,31 @@ InstructionExecutionInfo PCB::step() {
   //    return InstructionExecutionInfo(InstructionResult::PAGE_FAULT, page_number_to_request)
   
   if (currentInstruction < instructions.size()) {
-    executeCurrentInstruction();
-    ++currentInstruction;
+    try{
+      executeCurrentInstruction();
+      ++currentInstruction;
+      return InstructionExecutionInfo();
+    }catch (const std::runtime_error& e) {
+    std::string msg = e.what();
+
+      if (msg.starts_with("BAD_ALLOC")) {
+          std::cerr << "Memory allocation error\n";
+          return InstructionExecutionInfo(InstructionResult::PROCESS_COMPLETE, 0);
+
+      } else if (msg.starts_with("PAGE_FAULT")) {
+          // Extract numeric part after "PAGE_FAULT"
+          std::string address_str = msg.substr(std::string("PAGE_FAULT").length());
+          try {
+              uint32_t address = std::stoul(address_str);
+              return InstructionExecutionInfo(InstructionResult::PAGE_FAULT, address);
+          } catch (const std::exception& parse_err) {
+              std::cerr << "Failed to parse address from PAGE_FAULT message: " << address_str << "\n";
+          }
+      }
+    } catch (...) {
+      std::cerr << "Unknown error occurred during instruction execution\n";
+    }
+    
   } else if (isComplete()){
     return InstructionExecutionInfo(InstructionResult::PROCESS_COMPLETE, 0);
   }

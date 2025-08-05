@@ -8,6 +8,7 @@
 #include <format>
 #include <chrono>
 #include <memory>
+#include <new>
 
 namespace osemu {
 
@@ -55,13 +56,13 @@ uint16_t InstructionEvaluator::read_u16_from_heap(uint16_t address) {
     // Safety check
     if (address >= 65536){
         std::cout << "MEMORY ACCESS VIOLATION: OUT OF BOUNDS" << std::endl;
-        throw std::runtime_error("MEMORY ACCESS VIOLATION" + std::to_string(address));
+        throw std::runtime_error("OUT_OF_BOUNDS"); //we catch this and just 
     }
     // check if address is in memory, if not call page fault
     int page_needed = address / mem_per_frame;
     if (!page_table[page_needed].valid) {
-        std::cout << "PAGE FAULT : " + std::to_string(address) << std::endl;
-        throw std::runtime_error("Not loaded, requesting page fault" + std::to_string(address));
+        //std::cout << "PAGE FAULT : " + std::to_string(address) << std::endl;
+        throw std::runtime_error("PAGE_FAULT " + std::to_string(address));
     }
 
     //if loaded we can just read normally
@@ -72,7 +73,7 @@ uint16_t InstructionEvaluator::read_u16_from_heap(uint16_t address) {
 
 void InstructionEvaluator::write_u16_to_heap(uint16_t address, uint16_t value){
     if (address >= heap_end) {
-        throw std::runtime_error("MEMORY VIOLATION: Attempt to WRITE into protected instruction/symbol table area at address " + std::to_string(address));
+        throw std::runtime_error("BAD_ALLOC" + std::to_string(address));
     }
     write_u16_to_mem(address, value);
 }
@@ -81,14 +82,14 @@ void InstructionEvaluator::write_u16_to_heap(uint16_t address, uint16_t value){
 void InstructionEvaluator::write_u16_to_mem(uint16_t address, uint16_t value) {
     if (address >= 65536){
         std::cout << "MEMORY ACCESS VIOLATION: OUT OF BOUNDS" << std::endl;
-        throw std::runtime_error("MEMORY ACCESS VIOLATION" + std::to_string(address));
+        throw std::runtime_error("OVERFLOW" + std::to_string(address));
     }
 
     // check if address is in memory, if not call page fault
     int page_needed = address / mem_per_frame;
     if (!page_table[page_needed].valid) {
-        std::cout << "PAGE FAULT : " + std::to_string(address) << std::endl;
-        throw std::runtime_error("NOT LOADED, requesting page fault" + std::to_string(address));
+        //std::cout << "PAGE FAULT : " + std::to_string(address) << std::endl;
+        throw std::runtime_error("PAGE_FAULT" + std::to_string(address));
     }
 
     //mark page as dirty
