@@ -61,6 +61,19 @@ uint16_t InstructionEvaluator::read_u16_from_heap(uint16_t address) {
     return (upper << 8) | lower;
 }
 
+uint16_t InstructionEvaluator::read_u16_from_heap(uint16_t address, uint16_t instruction_size) {
+    // Safety check
+    uint16_t actual_address = 65472 - address; // 65472 is the top of the heap memory
+    if (actual_address < instruction_size || address <= 0) {
+        std::cout << "MEMORY VIOLATION: " + std::to_string(actual_address) << std::endl;
+        throw std::runtime_error("Memory read out of bounds at address: " + std::to_string(actual_address));
+    }
+
+    return mixed_value_storage[actual_address].index() == 0
+        ? std::get<uint16_t>(mixed_value_storage[actual_address])
+        : 0; // Return 0 if the address is not a valid uint16_t
+}
+
 void InstructionEvaluator::write_u16_to_heap(uint16_t address, uint16_t value){
     // Safety check
     const uint16_t stack_start_address = heap_memory.size() - 64;
@@ -99,10 +112,7 @@ void InstructionEvaluator::evaluate(const Expr& expr) {
         }
 
         case Expr::WRITE:{
-            //idk how to validate this actually, this is temporary lang
-            if (!expr.lhs->number_value >= heap_memory.size()) {
-                throw std::runtime_error("Invalid WRITE!");
-            }
+            //TODO: implement validation for WRITE
             handle_write(*expr.lhs, *expr.rhs);
             break;
         }

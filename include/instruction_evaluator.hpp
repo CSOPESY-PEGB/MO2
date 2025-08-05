@@ -1,5 +1,5 @@
 #ifndef OSEMU_INSTRUCTION_EVALUATOR__H_
-#define OSEMU_INSTRUCTION_EVALUATOR_H_
+#define OSEMU_INSTRUCTION_EVALUATOR__H_
 
 #include <string>
 #include <vector>
@@ -26,6 +26,8 @@ namespace osemu {
         //helper functions for dealing with memory
         uint16_t get_or_create_variable_address(const std::string& var_name);
         uint16_t read_u16_from_heap(uint16_t address);
+        uint16_t read_u16_from_heap(uint16_t address,
+                                    uint16_t instruction_size);
         void write_u16_to_heap(uint16_t address, uint16_t value);
         void write_u16_to_mem(uint16_t address, uint16_t value);
 
