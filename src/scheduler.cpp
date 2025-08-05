@@ -452,11 +452,11 @@ void Scheduler::print_process_smi() const {
     std::lock_guard<std::mutex> lock(running_mutex_);
     for (const auto& pcb : running_processes_) {
       // For simplicity, assuming each process uses mem_per_proc_ memory
-      std::cout << pcb->processName << " " << mem_per_proc_ / 1024 << "MiB\n";
+      std::cout << pcb->processName << " " << pcb->heap_memory.size() << " bytes\n";
     }
   }
   
-  std::cout << "|--------------------------------------------------|\n";
+  std::cout << "|--------------------------------------------------|" << std::endl;
 }
 
 void Scheduler::print_vmstat() const {
@@ -480,7 +480,7 @@ void Scheduler::print_vmstat() const {
   std::cout << "Active cpu ticks: " << active_ticks << "\n";
   std::cout << "Total cpu ticks: " << total_ticks << "\n";
   std::cout << "Num paged in: " << memory_manager_->get_pages_paged_in() << "\n";
-  std::cout << "Num paged out: " << memory_manager_->get_pages_paged_out() << "\n";
+  std::cout << "Num paged out: " << memory_manager_->get_pages_paged_out() << std::endl;
 }
 
 }

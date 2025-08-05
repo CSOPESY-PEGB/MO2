@@ -73,6 +73,7 @@ class CpuWorker {
   
   std::shared_ptr<PCB> current_task_;
   int time_quantum_;
+  int ticks_with_current_task_;
   
   mutable std::mutex mutex_;
   std::condition_variable condition_variable_;

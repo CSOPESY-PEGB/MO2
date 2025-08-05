@@ -13,6 +13,8 @@ const CommandMap cmd_map{
     {"scheduler-start", Commands::SchedulerStart},
     {"scheduler-stop", Commands::SchedulerStop},
     {"report-util", Commands::ReportUtil},
+    {"process-smi", Commands::ProcessSmi},
+    {"vmstat", Commands::Vmstat},
     {"clear", Commands::Clear},
     {"exit", Commands::Exit},
 
