@@ -6,6 +6,7 @@
 #include <memory>
 #include <variant>
 #include <iostream>
+#include <fstream>
 #include <unordered_map>
 
 namespace osemu {
@@ -18,6 +19,8 @@ struct Atom {
     
     Atom(std::string s, Type t) : type(t), string_value(std::move(s)), number_value(0) {}
     Atom(uint16_t n) : type(NUMBER), number_value(n) {}
+    // Default constructor for deserialization
+    Atom() : type(NUMBER), number_value(0) {}
     
     std::string to_string() const {
         switch (type) {
@@ -28,6 +31,24 @@ struct Atom {
                 return std::to_string(number_value);
         }
         return "THIS SHOULDNT HAPPEN";
+    }
+
+    void write(std::ofstream& out) const {
+        out.write(reinterpret_cast<const char*>(&type), sizeof(type));
+        size_t len = string_value.length();
+        out.write(reinterpret_cast<const char*>(&len), sizeof(len));
+        out.write(string_value.c_str(), len);
+        out.write(reinterpret_cast<const char*>(&number_value), sizeof(number_value));
+    }
+
+    // Atom Deserialization
+    void read(std::ifstream& in) {
+        in.read(reinterpret_cast<char*>(&type), sizeof(type));
+        size_t len;
+        in.read(reinterpret_cast<char*>(&len), sizeof(len));
+        string_value.resize(len);
+        in.read(&string_value[0], len);
+        in.read(reinterpret_cast<char*>(&number_value), sizeof(number_value));
     }
 };
 
@@ -60,7 +81,7 @@ struct Expr {
         }
         body = other.body;
     }
-    
+    Expr() : type(VOID_EXPR) {} // Explicit default constructor
     Expr& operator=(const Expr& other) {
         if (this != &other) {
             type = other.type;
@@ -174,7 +195,80 @@ struct Expr {
         e.rhs = std::move(value);    // value to write
         return e;
     }
-    
+
+    // Expr Serialization
+    void write(std::ofstream& out) const {
+        out.write(reinterpret_cast<const char*>(&type), sizeof(type));
+        size_t var_name_len = var_name.length();
+        out.write(reinterpret_cast<const char*>(&var_name_len), sizeof(var_name_len));
+        out.write(var_name.c_str(), var_name_len);
+
+        bool has_atom_value = atom_value != nullptr;
+        out.write(reinterpret_cast<const char*>(&has_atom_value), sizeof(has_atom_value));
+        if (atom_value) atom_value->write(out);
+
+        bool has_lhs = lhs != nullptr;
+        out.write(reinterpret_cast<const char*>(&has_lhs), sizeof(has_lhs));
+        if (lhs) lhs->write(out);
+
+        bool has_rhs = rhs != nullptr;
+        out.write(reinterpret_cast<const char*>(&has_rhs), sizeof(has_rhs));
+        if (rhs) rhs->write(out);
+
+        bool has_n = n != nullptr;
+        out.write(reinterpret_cast<const char*>(&has_n), sizeof(has_n));
+        if (n) n->write(out);
+
+        size_t body_size = body.size();
+        out.write(reinterpret_cast<const char*>(&body_size), sizeof(body_size));
+        for (const auto& expr : body) {
+            expr.write(out);
+        }
+    }
+
+    // Expr Deserialization
+    void read(std::ifstream& in) {
+        in.read(reinterpret_cast<char*>(&type), sizeof(type));
+        size_t var_name_len;
+        in.read(reinterpret_cast<char*>(&var_name_len), sizeof(var_name_len));
+        var_name.resize(var_name_len);
+        in.read(&var_name[0], var_name_len);
+
+        bool has_atom_value;
+        in.read(reinterpret_cast<char*>(&has_atom_value), sizeof(has_atom_value));
+        if (has_atom_value) {
+            atom_value = std::make_unique<Atom>();
+            atom_value->read(in);
+        }
+
+        bool has_lhs;
+        in.read(reinterpret_cast<char*>(&has_lhs), sizeof(has_lhs));
+        if (has_lhs) {
+            lhs = std::make_unique<Atom>();
+            lhs->read(in);
+        }
+
+        bool has_rhs;
+        in.read(reinterpret_cast<char*>(&has_rhs), sizeof(has_rhs));
+        if (has_rhs) {
+            rhs = std::make_unique<Atom>();
+            rhs->read(in);
+        }
+
+        bool has_n;
+        in.read(reinterpret_cast<char*>(&has_n), sizeof(has_n));
+        if (has_n) {
+            n = std::make_unique<Atom>();
+            n->read(in);
+        }
+
+        size_t body_size;
+        in.read(reinterpret_cast<char*>(&body_size), sizeof(body_size));
+        body.resize(body_size);
+        for (size_t i = 0; i < body_size; ++i) {
+            body[i].read(in);
+        }
+    }
 };
 
 struct ParseResult {

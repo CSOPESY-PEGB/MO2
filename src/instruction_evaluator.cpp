@@ -12,14 +12,16 @@
 namespace osemu {
 
 InstructionEvaluator::InstructionEvaluator(
-    std::vector<uint8_t>& heap_memory, 
+    std::vector<PageTableEntry>& page_table, 
     std::unordered_map<std::string, uint16_t>& symbol_table, 
     std::vector<std::string>& output_log, 
-    std::string& process_name) 
-    : heap_memory(heap_memory), 
+    std::string& process_name, size_t mem_per_frame) 
+    : page_table(page_table), 
     symbol_table(symbol_table), 
     output_log(output_log), 
-    process_name(process_name) {}
+    process_name(process_name), mem_per_frame(mem_per_frame) {
+
+    }
 
 uint16_t InstructionEvaluator::get_or_create_variable_address(const std::string& var_name) {
     // 1. Check if the variable already exists.
@@ -37,11 +39,11 @@ uint16_t InstructionEvaluator::get_or_create_variable_address(const std::string&
     size_t new_var_count = symbol_table.size() + 1;
     
     // Check if there's enough space for another 2-byte variable.
-    if (heap_memory.size() < new_var_count * 2) {
+    if (65536 < new_var_count * 2) {
         throw std::runtime_error("Out of stack memory for new variable: " + var_name);
     }
 
-    uint16_t new_address = heap_memory.size() - (new_var_count * 2);
+    uint16_t new_address = 65536 - (new_var_count * 2);
     
     // 4. Add the new variable to the symbol table.
     symbol_table[var_name] = new_address;
@@ -51,33 +53,50 @@ uint16_t InstructionEvaluator::get_or_create_variable_address(const std::string&
 
 uint16_t InstructionEvaluator::read_u16_from_heap(uint16_t address) {
     // Safety check
-    if (address + 1 >= heap_memory.size()) {
-        std::cout << "MEMORY VIOLATION: " + std::to_string(address) << std::endl;
-        throw std::runtime_error("Memory read out of bounds at address: " + std::to_string(address));
+    if (address >= 65536){
+        std::cout << "MEMORY ACCESS VIOLATION: OUT OF BOUNDS" << std::endl;
+        throw std::runtime_error("MEMORY ACCESS VIOLATION" + std::to_string(address));
     }
-    // Little-Endian read
-    uint16_t upper = heap_memory[address + 1];
-    uint16_t lower = heap_memory[address];
+    // check if address is in memory, if not call page fault
+    int page_needed = address / mem_per_frame;
+    if (!page_table[page_needed].valid) {
+        std::cout << "PAGE FAULT : " + std::to_string(address) << std::endl;
+        throw std::runtime_error("Not loaded, requesting page fault" + std::to_string(address));
+    }
+
+    //if loaded we can just read normally
+    uint16_t upper = page_table[page_needed].data[address + 1];
+    uint16_t lower = page_table[page_needed].data[address];
     return (upper << 8) | lower;
 }
 
 void InstructionEvaluator::write_u16_to_heap(uint16_t address, uint16_t value){
-    // Safety check
-    const uint16_t stack_start_address = heap_memory.size() - 64;
-    if (address >= stack_start_address) {
-        throw std::runtime_error("MEMORY VIOLATION: Attempt to WRITE into protected stack area at address " + std::to_string(address));
+    if (address >= heap_end) {
+        throw std::runtime_error("MEMORY VIOLATION: Attempt to WRITE into protected instruction/symbol table area at address " + std::to_string(address));
     }
     write_u16_to_mem(address, value);
 }
 
+//privileged write
 void InstructionEvaluator::write_u16_to_mem(uint16_t address, uint16_t value) {
-    if (address + 1 >= heap_memory.size()) {
-        throw std::runtime_error("Memory write out of bounds at address: " + std::to_string(address));
+    if (address >= 65536){
+        std::cout << "MEMORY ACCESS VIOLATION: OUT OF BOUNDS" << std::endl;
+        throw std::runtime_error("MEMORY ACCESS VIOLATION" + std::to_string(address));
     }
 
+    // check if address is in memory, if not call page fault
+    int page_needed = address / mem_per_frame;
+    if (!page_table[page_needed].valid) {
+        std::cout << "PAGE FAULT : " + std::to_string(address) << std::endl;
+        throw std::runtime_error("NOT LOADED, requesting page fault" + std::to_string(address));
+    }
+
+    //mark page as dirty
+    page_table[page_needed].dirty = true;
+
     // Little-Endian write
-    heap_memory[address]     = static_cast<uint8_t>(value);
-    heap_memory[address + 1] = static_cast<uint8_t>(value >> 8);
+    page_table[page_needed].data[address] = static_cast<uint8_t>(value);
+    page_table[page_needed].data[address + 1] = static_cast<uint8_t>(value >> 8);
 }
 
 void InstructionEvaluator::evaluate(const Expr& expr) {
@@ -100,9 +119,6 @@ void InstructionEvaluator::evaluate(const Expr& expr) {
 
         case Expr::WRITE:{
             //idk how to validate this actually, this is temporary lang
-            if (!expr.lhs->number_value >= heap_memory.size()) {
-                throw std::runtime_error("Invalid WRITE!");
-            }
             handle_write(*expr.lhs, *expr.rhs);
             break;
         }

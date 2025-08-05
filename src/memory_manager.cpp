@@ -54,7 +54,44 @@ void MemoryManager::free(uint32_t pcb_id) {
 }
 
 void MemoryManager::handle_page_faults(){
-    //
+    memory_mutex_.lock();
+    while(!page_fault_reqs.empty()){
+        PageFaultRequest request = page_fault_reqs.top();
+        page_fault_reqs.pop();
+        handle_page_fault(request);
+    }
+}
+
+void MemoryManager::handle_page_fault(PageFaultRequest request){
+    
+    //load page from backing store
+
+    //pop from free frame list or select a victim from victim list
+
+    //assign process into its new home
+
+    //if victim page is dirty, update backing store
+
+    //update their respective page tables
+
+}
+
+std::shared_ptr<PCB> MemoryManager::find_process_by_pid(uint32_t id){
+    
+}
+
+void MemoryManager::submit(std::shared_ptr<PCB> process){
+    memory_mutex_.lock();
+    process->store(bs);
+    std::cout << "WRITTEN TO " << bs << std::endl;
+}
+
+
+//emplace one page fault request to execute at handle_page_faults()
+//in english, load the page_num of this pcb_id later
+void MemoryManager::request_page_fault(uint32_t pcb_id, uint32_t page_num, std::shared_ptr<PCB> process){
+    memory_mutex_.lock();
+    page_fault_reqs.emplace(pcb_id, page_num, process);
 }
 
 void MemoryManager::coalesce_free_blocks(std::list<MemoryBlock>::iterator newly_freed_block) {

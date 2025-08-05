@@ -107,8 +107,9 @@ bool create_process(const std::string& process_name, Scheduler& scheduler, Confi
   InstructionGenerator generator;
 
   auto instructions = generator.generateRandomProgram(config.minInstructions, config.maxInstructions, process_name, config.min_mem_per_proc, config.max_mem_per_proc);
-  auto pcb = std::make_shared<PCB>(process_name, instructions, memory_size);
   
+  auto pcb = std::make_shared<PCB>(process_name, instructions, memory_size, scheduler.memPerFrame);
+
   std::cout << "Created process '" << process_name << "' with " 
             << instructions.size() << " instructions and memory size of "
             << memory_size << " bytes." << std::endl;
@@ -138,7 +139,7 @@ void create_process_from_file(const std::string& filename, const std::string& pr
     return;
   }
   
-  auto pcb = std::make_shared<PCB>(process_name, program);
+  auto pcb = std::make_shared<PCB>(process_name, program, scheduler.memPerFrame);
   
   std::cout << "Created process '" << process_name << "' from file '" << filename 
             << "' with " << program.size() << " instructions." << std::endl;
@@ -229,7 +230,7 @@ void create_process_from_string(const std::string& process_name, size_t memory, 
     return;
   }
   
-  auto pcb = std::make_shared<PCB>(process_name, program, memory);
+  auto pcb = std::make_shared<PCB>(process_name, program, memory, scheduler.memPerFrame);
   
   std::cout << "Created process '" << process_name << " with " << memory << "bytes of memory." << std::endl;
   
