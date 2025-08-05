@@ -3,45 +3,34 @@
 
 #include <vector>
 #include <random>
+#include <cstdint> // For uint32_t
 #include "instruction_parser.hpp"
 
 namespace osemu {
 
 class InstructionGenerator {
+public:
+  InstructionGenerator();
+
+  // This is the main public function.
+  std::vector<Expr> generateRandomProgram(
+      uint32_t min_instructions,
+      uint32_t max_instructions,
+      const std::string& process_name,
+      size_t memory_size,
+      uint32_t frame_size);
+
 private:
-    std::mt19937 rng;
-    std::uniform_int_distribution<int> instruction_type_dist;
-    std::uniform_int_distribution<uint16_t> value_dist;
-    std::uniform_int_distribution<int> var_name_dist;
-    std::uniform_int_distribution<int> for_count_dist;
-    std::uniform_int_distribution<int> for_body_size_dist;
-    std::uniform_int_distribution<uint16_t> add_value_dist;
+  // --- NEW HELPER FUNCTION DECLARATIONS ---
+  std::string generateVariableName(int index);
+  size_t generateHeapAddress(size_t heap_size);
 
-    std::string generateVariableName();
-    size_t generateAddress(size_t memory_size);
-    size_t generate_power_of_two(size_t, size_t);
-    Expr generatePrintInstruction(const std::string& process_name);
-    Expr generateDeclareInstruction();
-    Expr generateAddInstruction();
-    Expr generateSubtractInstruction();
-    Expr generateSleepInstruction();
-    Expr generateForInstruction(int max_depth = 3);
-
-
-   public:
-    InstructionGenerator();
-    
-    std::vector<Expr> generateInstructions(size_t count,
-                                           const std::string& process_name,
-                                           size_t memory_size);
-                                           
-    std::vector<Expr> generateRandomProgram(size_t min_instructions,
-                                            size_t max_instructions,
-                                            const std::string& process_name,
-                                            size_t min_mem,
-                                            size_t max_mem);
+  // Private member variables for random number generation
+  std::mt19937 rng;
+  std::uniform_int_distribution<uint16_t> value_dist;
+  std::uniform_int_distribution<uint16_t> add_value_dist;
 };
 
-}  
+} // namespace osemu
 
-#endif  
+#endif

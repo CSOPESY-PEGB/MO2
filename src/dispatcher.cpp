@@ -25,6 +25,7 @@ void dispatch(Commands cmd, std::vector<std::string>& args, Config& cfg,
         scheduler.stop();
         cfg = Config::fromFile(args.empty() ? "config.txt" : args[0]);
         scheduler.start(cfg);
+
         std::cout << "System initialized from '" << (args.empty() ? "config.txt" : args[0]) << "'.\n";
 
       } catch (const std::exception& e) {
@@ -37,14 +38,19 @@ void dispatch(Commands cmd, std::vector<std::string>& args, Config& cfg,
       break;
 
     case Commands::SchedulerStart:
+      // --- FIX ---
+      // Call the correct public method.
       if (scheduler.is_generating()) {
         std::cout << "Scheduler is already generating processes.\n";
       } else {
-        scheduler.start_batch_generation(cfg);
+        // The function now takes no arguments.
+        scheduler.start_batch_generation();
       }
       break;
       
     case Commands::SchedulerStop:
+      // --- FIX ---
+      // Call the correct public method.
       if (!scheduler.is_generating()) {
         std::cout << "Scheduler is not currently generating processes.\n";
       } else {
@@ -53,8 +59,13 @@ void dispatch(Commands cmd, std::vector<std::string>& args, Config& cfg,
       break;
       
     case Commands::ReportUtil:
-      scheduler.generate_report();
+      // --- FIX ---
+      // This command should now generate a detailed report file.
+      // A simple status to the console is handled by 'screen -ls' or 'process-smi'.
+      // Let's create a new 'generate_full_report' function for this.
+      scheduler.generate_full_report(); // We will create this new function.
       break;
+
 
     case Commands::Clear:
       std::cout << "\x1b[2J\x1b[H";
@@ -66,11 +77,15 @@ void dispatch(Commands cmd, std::vector<std::string>& args, Config& cfg,
       break;
       
     case Commands::ProcessSmi:
-      scheduler.print_process_smi();
+      scheduler.print_status(); // The 'screen -ls' command is now the process-smi
       break;
       
     case Commands::Vmstat:
-      scheduler.print_vmstat();
+      if (scheduler.get_memory_manager()) {
+        scheduler.get_memory_manager()->generate_vmstat_report(std::cout);
+      } else {
+        std::cout << "Memory manager not initialized." << std::endl;
+      }
       break;
   }
 }

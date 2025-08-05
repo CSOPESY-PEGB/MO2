@@ -29,171 +29,106 @@ Scheduler::~Scheduler() {
   }
 }
 
-void Scheduler::dispatch(){
-  while(running_.load()){
+void Scheduler::dispatch() {
+  while (running_.load()) {
     std::shared_ptr<PCB> process;
-    
-    if(!ready_queue_.wait_and_pop(process)){
-      if(!running_.load()) break;
-      else continue;
-    }
+    if (!ready_queue_.wait_and_pop(process)) { /* ... */ }
+    if (!process) continue;
 
-    if(!process){
-      if(!running_.load()) break;
-      else continue;
-    }
-    
-    // Check with the memory manager, the single source of truth.
-    bool can_run = false;
-    if (memory_manager_) {
-        if (memory_manager_->is_allocated(process->processID)) {
-            // It's already in memory, so it can run.
-            can_run = true;
-        } else {
-            // It's not in memory, try to allocate it.
-            if (memory_manager_->allocate(process->processID, mem_per_proc_, process)) {
-                // Allocation succeeded, so it can run.
-                can_run = true;
-            }
-            // If allocation fails, can_run remains false.
-        }
-    }
-    
-    if (!can_run) {
-        // Defer the process if it couldn't be run.
-        ready_queue_.push(std::move(process));
-        continue;
-    }
-    
-    // If we reach here, the process has memory and is ready for a CPU.
     bool dispatched = false;
-    while (!dispatched && running_.load()){
-      for (auto& worker: cpu_workers_){
-        if (worker->IsIdle()){
-          
-          if (algorithm_ == SchedulingAlgorithm::FCFS) {
-            int remaining_instructions = -1;
-            worker->AssignTask(process, remaining_instructions);
-            dispatched = true;
-            break;
-          } else if (algorithm_ == SchedulingAlgorithm::RoundRobin) {
-            int remaining_instructions = process->totalInstructions - process->currentInstruction;
-            int steps_to_run = std::min((int)quantum_cycles_, remaining_instructions);
-            worker->AssignTask(process, steps_to_run);
-            dispatched = true;
-            break;
-          }
+    while (!dispatched && running_.load()) {
+      CpuWorker* idle_worker = nullptr;
+      for (auto& worker : cpu_workers_) {
+        if (worker->IsIdle()) { idle_worker = worker.get(); break; }
+      }
+
+      if (!idle_worker) {
+        ready_queue_.push_front(std::move(process));
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        break;
+      }
+
+      bool can_dispatch = true;
+      if (config_.scheduler == SchedulingAlgorithm::FCFS) {
+        // The spec implies FCFS is serialized. The only way to guarantee this
+        // behavior without race conditions is to check the running list.
+        std::lock_guard<std::mutex> lock(running_mutex_);
+        if (!running_processes_.empty()) {
+          can_dispatch = false;
         }
+      }
+
+      if (can_dispatch) {
+        int quantum = (config_.scheduler == SchedulingAlgorithm::FCFS) ? -1 : config_.quantumCycles;
+        idle_worker->AssignTask(process, quantum);
+        dispatched = true;
+      } else {
+        // FCFS and another process is already running. Wait.
+        ready_queue_.push_front(std::move(process));
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        break;
       }
     }
   }
 }
-
 void Scheduler::global_clock() {
-  while (running_.load()) {
-    std::this_thread::sleep_for(std::chrono::milliseconds(20));
-    if (!running_.load()) break;
-
-    {
-      std::lock_guard<std::mutex> lock(clock_mutex_);
-      ticks_++;
+    while (running_.load()) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        if (!running_.load()) break;
+        {
+            std::lock_guard<std::mutex> lock(clock_mutex_);
+            ticks_++;
+        }
+        clock_cv_.notify_all();
     }
-    clock_cv_.notify_all();
-
-    if (running_.load() && memory_manager_ &&
-        (ticks_.load() % quantum_cycles_) == 0 && ticks_.load() > 0) {
-      quantum_report_counter_++;
-    }
-  }
 }
 
-void Scheduler::check_config_scheduler_for_discrepancies(const Config& config) {
-  std::cout << "debug: max_overall_mem " << config.max_overall_mem << std::endl;
-  std::cout << "debug: maxOverallMem " << maxOverallMemory << std::endl;
-
-  std::cout << "debug: mem_per_frame (config)" << config.mem_per_frame
-            << std::endl;
-  std::cout << "debug: memPerFrame (scheduler)" << memPerFrame << std::endl;
-
-  std::cout << "debug: mem_per_proc_ (scheduler) " << mem_per_proc_
-            << std::endl;
-  std::cout << "debug: mem_per_proc_ (config) " << config.min_mem_per_proc
-            << std::endl;
-
-  std::cout << "debug: minMemPerProc - (scheduler) " << minMemPerProc
-            << std::endl;
-  std::cout << "debug: min_mem_per_proc - (config) " << config.min_mem_per_proc
-            << std::endl;
-
-  std::cout << "debug: maxMemPerProc - scheduler " << maxMemPerProc
-            << std::endl;
-  std::cout << "debug: max_mem_per_proc - config " << config.max_mem_per_proc
-            << std::endl;
-}
 void Scheduler::start(const Config& config) {
-  running_ = true;
-  delay_per_exec_ = config.delayCyclesPerInstruction;
-  quantum_cycles_ = config.quantumCycles;
-  algorithm_ = config.scheduler;
-  core_count_ = config.cpuCount;
-  maxOverallMemory = config.max_overall_mem;
-  memPerFrame = config.mem_per_frame;
-  minMemPerProc = config.min_mem_per_proc;
-  maxMemPerProc = config.max_mem_per_proc;
+    running_ = true;
+    config_ = config;
 
-  memory_manager_ = std::make_unique<MemoryManager>(config.max_overall_mem, config.mem_per_frame);
-  mem_per_proc_ = config.min_mem_per_proc;
+    memory_manager_ = std::make_unique<MemoryManager>(config_);
 
-  for (uint32_t i = 0; i < config.cpuCount; ++i) {
-    cpu_workers_.push_back(std::make_unique<CpuWorker>(i, *this));
-    cpu_workers_.back()->Start();
-  }
+    for (uint32_t i = 0; i < config_.cpuCount; ++i) {
+        cpu_workers_.push_back(std::make_unique<CpuWorker>(i, *this));
+        cpu_workers_.back()->Start();
+    }
 
-  std::cout << "Scheduler started with " << config.cpuCount << " cores."
-            << std::endl;
+    std::cout << "Scheduler started with " << config_.cpuCount << " cores." << std::endl;
 
-  // debuggg
-  // check_config_scheduler_for_discrepancies(config);
-
-  dispatch_thread_ = std::thread(&Scheduler::dispatch, this);
-  global_clock_thread_ = std::thread(&Scheduler::global_clock, this);
+    dispatch_thread_ = std::thread(&Scheduler::dispatch, this);
+    global_clock_thread_ = std::thread(&Scheduler::global_clock, this);
 }
 
 void Scheduler::stop() {
-  running_ = false;
-  ready_queue_.shutdown();
+    running_ = false;
+    ready_queue_.shutdown();
+    clock_cv_.notify_all();
 
-  clock_cv_.notify_all();
+    if (dispatch_thread_.joinable()) {
+        dispatch_thread_.join();
+    }
+    if (global_clock_thread_.joinable()) {
+        global_clock_thread_.join();
+    }
+    for (auto& worker : cpu_workers_) {
+        worker->Stop();
+        worker->Join();
+    }
+    cpu_workers_.clear();
 
-  if(dispatch_thread_.joinable()){
-    dispatch_thread_.join();
-  }
-  for (auto& worker : cpu_workers_) {
-      worker->Stop();
-      worker->Join();
-  }
-
-  cpu_workers_.clear();
-  
-  if(global_clock_thread_.joinable()){
-    global_clock_thread_.join();
-  }
-
-  memory_manager_.reset();
-
-  std::cout << "Scheduler stopped." << std::endl;
-  std::cout << "Number of cycles from this run: " << ticks_.load() << std::endl;
+    memory_manager_.reset();
+    std::cout << "Scheduler stopped." << std::endl;
 }
 
 void Scheduler::submit_process(std::shared_ptr<PCB> pcb) {
   // Initialize page table for this process if memory manager is available
   if (memory_manager_) {
-    // Calculate number of pages needed for process memory
-    size_t process_memory_size = pcb->heap_memory.size();
-    uint32_t num_pages = (process_memory_size + memPerFrame - 1) / memPerFrame; // Round up
-    memory_manager_->initialize_page_table(pcb->processID, num_pages);
+    // --- NEW LOGIC ---
+    // Register the process with the manager so it can have a page table.
+    memory_manager_->register_process(pcb);
   }
-  
+
   {
     std::lock_guard<std::mutex> lock(map_mutex_);
     all_processes_map_[pcb->processName] = pcb;
@@ -202,8 +137,12 @@ void Scheduler::submit_process(std::shared_ptr<PCB> pcb) {
 }
 
 void Scheduler::print_status() const {
+  if (!memory_manager_) {
+    std::cout << "System not initialized. Cannot print status." << std::endl;
+    return;
+  }
   double cpu_utilization;
-  size_t total_cores = core_count_;
+  size_t total_cores = config_.cpuCount;
   size_t cores_used = 0;
   for (const auto& worker : cpu_workers_) {
     if (!worker->IsIdle()) {
@@ -211,13 +150,11 @@ void Scheduler::print_status() const {
     }
   }
   calculate_cpu_utilization(total_cores, cores_used, cpu_utilization);
+  std::cout << std::format("CPU Utilization: {:.2f}%\n", cpu_utilization);
+  // The memory manager now handles the detailed "process-smi" style report.
+  memory_manager_->generate_process_smi_report(std::cout, all_processes_map_);
 
-  std::cout << "CPU utilization: " << static_cast<int>(cpu_utilization) << "%\n";
-  std::cout << "Cores used: " << cores_used << "\n";
-  std::cout << "Cores available: " << (core_count_ - cores_used) << "\n\n";
-  memory_manager_->generate_memory_report(std::cout);
-  std::cout
-      << "----------------------------------------------------------------\n";
+  std::cout << "----------------------------------------------------------------\n";
   std::cout << "Running processes:\n";
   {
     std::lock_guard<std::mutex> lock(running_mutex_);
@@ -225,16 +162,14 @@ void Scheduler::print_status() const {
       std::cout << pcb->status() << std::endl;
     }
   }
-
-  std::cout << "\nFinished processes:\n";
+  std::cout << "\nFinished/Terminated processes:\n";
   {
     std::lock_guard<std::mutex> lock(finished_mutex_);
     for (const auto& pcb : finished_processes_) {
       std::cout << pcb->status() << std::endl;
     }
   }
-  std::cout
-      << "----------------------------------------------------------------\n";
+  std::cout << "----------------------------------------------------------------\n";
 }
 
 std::shared_ptr<PCB> Scheduler::find_process_by_name(const std::string& processName) const{
@@ -251,16 +186,32 @@ std::shared_ptr<PCB> Scheduler::find_process_by_name(const std::string& processN
 
 void Scheduler::move_to_running(std::shared_ptr<PCB> pcb) {
   std::lock_guard<std::mutex> lock(running_mutex_);
-  running_processes_.push_back(std::move(pcb));
+  running_processes_.push_back(pcb);
 }
 
+// In scheduler.cpp
 void Scheduler::move_to_finished(std::shared_ptr<PCB> pcb) {
+
+  // Create a copy of the ID and Name BEFORE you move the pcb
+  // This is a safe way to do it if you must use std::move
+  uint32_t id = pcb->processID;
+  std::string name = pcb->processName;
+
   {
-    std::lock_guard<std::mutex> lock(running_mutex_);
-    std::lock_guard<std::mutex> lock2(finished_mutex_);
+    std::scoped_lock lock(running_mutex_, finished_mutex_);
+
     std::erase_if(running_processes_,
                   [&](const auto& p) { return p.get() == pcb.get(); });
-    finished_processes_.push_back(std::move(pcb));
+
+    // The simplest, safest fix is to just copy the shared_ptr.
+    // This increments the reference count, which is what shared_ptr is for.
+    finished_processes_.push_back(pcb); // REMOVED std::move()
+  }
+
+  if (memory_manager_) {
+    // Now it is safe to use the pcb variable again, because it was copied, not moved.
+    memory_manager_->cleanup_process(pcb->processID);
+    std::cout << "Cleaned up memory for process " << pcb->processID << " (" << pcb->processName << ")." << std::endl;
   }
 }
 
@@ -274,62 +225,50 @@ void Scheduler::move_to_ready(std::shared_ptr<PCB> pcb) {
   ready_queue_.push(std::move(pcb));
 }
 
-void Scheduler::start_batch_generation(const Config& config) {
+void Scheduler::start_batch_generation() {
   if (batch_generating_.load()) {
     std::cout << "Batch process generation is already running." << std::endl;
     return;
   }
-  
+
   batch_generating_ = true;
-  batch_generator_thread_ = std::make_unique<std::thread>([this, config]() {
-    uint32_t last_tick_seen = 0;
-    
-    while (batch_generating_.load()) {      
-      if (get_ticks() - last_tick_seen >= batch_process_freq_) {
-        last_tick_seen = get_ticks();
-       std::string process_name;
-       
-       {
-         std::lock_guard<std::mutex> lock(process_counter_mutex_);
+  batch_generator_thread_ = std::make_unique<std::thread>([this]() {
+      std::random_device rd;
+      std::mt19937 gen(rd());
+    std::uniform_int_distribution<> dist(config_.min_mem_per_proc, config_.max_mem_per_proc);
 
-         do {
-           ++process_counter_;
-           std::stringstream ss;
-           ss << "p" << std::setw(2) << std::setfill('0') << process_counter_;
-           process_name = ss.str();
-         } while (find_process_by_name(process_name) != nullptr);
-       } 
+      while (batch_generating_.load()) {
+          // Logic to generate one process per configured frequency
+          std::this_thread::sleep_for(std::chrono::milliseconds(500)); // Simple delay
 
-        // Generate a random memory size for the process
-        std::random_device rd;                         
-        std::mt19937 gen(rd());                        
-        std::uniform_int_distribution<> dist(minMemPerProc, maxMemPerProc); 
+          std::string process_name;
+          {
+              std::lock_guard<std::mutex> lock(process_counter_mutex_);
+              do {
+                  ++process_counter_;
+                  process_name = "p" + std::to_string(process_counter_);
+              } while (find_process_by_name(process_name) != nullptr);
+          }
 
-        size_t memory_size = dist(gen);
-       
+          size_t memory_size = dist(gen);
+          // Ensure it's a power of 2
+          memory_size = 1 << static_cast<int>(std::log2(memory_size));
+
         auto instructions = instruction_generator_.generateRandomProgram(
-          config.minInstructions, 
-          config.maxInstructions, 
-          process_name, 
-          config.min_mem_per_proc,
-          config.max_mem_per_proc
+            config_.minInstructions,
+            config_.maxInstructions,
+            process_name,
+            memory_size,
+            config_.mem_per_frame
         );
-       
-        // Check if the process can fit in the memory size allocated
-        if (instructions.size() + 64 > memory_size) {
-          std::cerr << "Error: Process " << process_name
-                    << " has too many instructions for the allocated memory size."
-                    << std::endl;  
-        } else {
-          auto pcb = std::make_shared<PCB>(process_name, instructions, memory_size, memory_manager_.get());
+          // Use the correct 3-argument PCB constructor
+          auto pcb = std::make_shared<PCB>(process_name, instructions, memory_size);
           submit_process(pcb);
-        }
       }
-    }
   });
-  
   std::cout << "Started batch process generation." << std::endl;
 }
+
 
 void Scheduler::stop_batch_generation() {
   if (!batch_generating_.exchange(false)) {
@@ -358,15 +297,16 @@ void Scheduler::calculate_cpu_utilization(size_t& total_cores,
                       : 0.0;
 }
 
-void Scheduler::generate_report(const std::string& filename) const {
+void Scheduler::generate_full_report(const std::string& filename) const {
   std::ofstream report_file(filename);
   
-  if (!report_file.is_open()) {
+  if (!report_file) { // Use !is_open() for fstream
+    std::cerr << "Error: Could not open report file " << filename << std::endl;
     return;
   }
 
   double cpu_utilization;
-  size_t total_cores = core_count_;
+  size_t total_cores = config_.cpuCount;
   size_t cores_used = 0;
   for (const auto& worker : cpu_workers_) {
     if (!worker->IsIdle()) {
@@ -376,10 +316,19 @@ void Scheduler::generate_report(const std::string& filename) const {
 
   calculate_cpu_utilization(total_cores, cores_used, cpu_utilization);
 
+  report_file << "--- System Utilization Report ---\n";
   report_file << "CPU utilization: " << static_cast<int>(cpu_utilization) << "%\n";
   report_file << "Cores used: " << cores_used << "\n";
-  report_file << "Cores available: " << (core_count_ - cores_used) << "\n\n";
+  report_file << "Cores available: " << (total_cores - cores_used) << "\n\n";
 
+  // Also include a memory report in the file
+  if(memory_manager_) {
+    report_file << "--- Memory Manager Status ---\n";
+    memory_manager_->generate_process_smi_report(report_file, all_processes_map_);
+    report_file << "\n";
+  }
+
+  report_file << "--- Process Status ---\n";
   report_file << "Running processes:\n";
   {
     std::lock_guard<std::mutex> lock(running_mutex_);
@@ -387,129 +336,16 @@ void Scheduler::generate_report(const std::string& filename) const {
       report_file << pcb->status() << "\n";
     }
   }
-  
-  report_file << "\nFinished processes:\n";
+
+  report_file << "\nFinished/Terminated processes:\n";
   {
     std::lock_guard<std::mutex> lock(finished_mutex_);
     for (const auto& pcb : finished_processes_) {
       report_file << pcb->status() << "\n";
     }
   }
-  
+
   report_file.close();
-  std::cout << "Report generated at " << filename << "!" << std::endl;
+  std::cout << "Full system report generated at " << filename << std::endl;
 }
-
-void Scheduler::print_process_smi() const {
-  std::cout << "     _-----_\n";
-  std::cout << "    |       |\n";
-  std::cout << "    |--(o)--|\n";
-  std::cout << "   `---------´\n";
-  std::cout << "    ( CSOPESY )\n";
-  std::cout << "     `-------´\n";
-  std::cout << "      ___\n";
-  std::cout << "     /   \\\n";
-  std::cout << "|--------------------------------------------------|\n";
-  std::cout << "| PROCESS-SMI V01.00 Driver Version: 01.00         |\n";
-  std::cout << "|--------------------------------------------------|\n";
-  
-  // Calculate CPU utilization
-  double cpu_utilization;
-  size_t total_cores = core_count_;
-  size_t cores_used = 0;
-  for (const auto& worker : cpu_workers_) {
-    if (!worker->IsIdle()) {
-      ++cores_used;
-    }
-  }
-  calculate_cpu_utilization(total_cores, cores_used, cpu_utilization);
-  
-  std::cout << "CPU-Util: " << static_cast<int>(cpu_utilization) << "%\n";
-  
-  if (memory_manager_) {
-    uint32_t total_mem = memory_manager_->get_total_memory();
-    uint32_t used_mem = memory_manager_->get_used_memory();
-    
-    std::cout << "Memory Usage: " << used_mem << " / " << total_mem << "\n";
-    if (total_mem > 0) {
-      std::cout << "Memory Util: " << static_cast<int>((double)used_mem / total_mem * 100) << "%\n";
-    } else {
-      std::cout << "Memory Util: 0%\n";
-    }
-  } else {
-    std::cout << "Memory Usage: 0 / 0\n";
-    std::cout << "Memory Util: 0%\n";
-  }
-  
-  std::cout << "|--------------------------------------------------|\n";
-  std::cout << "Running processes and memory usage:\n";
-  std::cout << "|--------------------------------------------------|\n";
-  
-  {
-    std::lock_guard<std::mutex> lock(running_mutex_);
-    for (const auto& pcb : running_processes_) {
-      // For simplicity, assuming each process uses mem_per_proc_ memory
-      std::cout << pcb->processName << " " << mem_per_proc_ / 1024 << "MiB\n";
-    }
-  }
-  
-  std::cout << "|--------------------------------------------------|\n";
-}
-
-void Scheduler::print_vmstat() const {
-  if (!memory_manager_) {
-    std::cout << "Memory manager not available.\n";
-    return;
-  }
-  
-  uint32_t total_memory = memory_manager_->get_total_memory();
-  uint32_t used_memory = memory_manager_->get_used_memory();
-  uint32_t free_memory = memory_manager_->get_free_memory();
-  
-  size_t total_cpu_ticks = idle_cpu_ticks_.load() + active_cpu_ticks_.load();
-  
-  // Convert bytes to KB for display (divide by 1024)
-  uint32_t total_kb = total_memory / 1024;
-  uint32_t used_kb = used_memory / 1024;
-  uint32_t free_kb = free_memory / 1024;
-  
-  std::cout << std::setw(12) << total_kb << " K total memory\n";
-  std::cout << std::setw(12) << used_kb << " K used memory\n";
-  std::cout << std::setw(12) << used_kb << " K active memory\n";
-  std::cout << std::setw(12) << (total_kb - used_kb) << " K inactive memory\n";
-  std::cout << std::setw(12) << free_kb << " K free memory\n";
-  std::cout << std::setw(12) << 0 << " K buffer memory\n";
-  std::cout << std::setw(12) << 0 << " K swap cache\n";
-  std::cout << std::setw(12) << 0 << " K total swap\n";
-  std::cout << std::setw(12) << 0 << " K used swap\n";
-  std::cout << std::setw(12) << 0 << " K free swap\n";
-  std::cout << std::setw(12) << active_cpu_ticks_.load() << " non-nice user cpu ticks\n";
-  std::cout << std::setw(12) << 0 << " nice user cpu ticks\n";
-  std::cout << std::setw(12) << active_cpu_ticks_.load() << " system cpu ticks\n";
-  std::cout << std::setw(12) << idle_cpu_ticks_.load() << " idle cpu ticks\n";
-  std::cout << std::setw(12) << 0 << " IO-wait cpu ticks\n";
-  std::cout << std::setw(12) << 0 << " IRQ cpu ticks\n";
-  std::cout << std::setw(12) << 0 << " softirq cpu ticks\n";
-  std::cout << std::setw(12) << 0 << " stolen cpu ticks\n";
-  std::cout << std::setw(12) << memory_manager_->get_pages_paged_in() << " pages paged in\n";
-  std::cout << std::setw(12) << memory_manager_->get_pages_paged_out() << " pages paged out\n";
-  std::cout << std::setw(12) << 0 << " pages swapped in\n";
-  std::cout << std::setw(12) << 0 << " pages swapped out\n";
-  std::cout << std::setw(12) << 0 << " interrupts\n";
-  std::cout << std::setw(12) << 0 << " CPU context switches\n";
-  std::cout << std::setw(12) << std::time(nullptr) << " boot time\n";
-  
-  size_t total_processes = 0;
-  {
-    std::lock_guard<std::mutex> lock(running_mutex_);
-    total_processes += running_processes_.size();
-  }
-  {
-    std::lock_guard<std::mutex> lock(finished_mutex_);
-    total_processes += finished_processes_.size();
-  }
-  
-  std::cout << std::setw(12) << total_processes << " forks\n";
-}
-
 }

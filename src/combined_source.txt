@@ -1,0 +1,2400 @@
+#include "commands.hpp"
+
+#include <stdexcept>
+#include <string>
+
+namespace osemu {
+
+namespace {
+using CommandMap = std::unordered_map<std::string_view, Commands>;
+const CommandMap cmd_map{
+    {"initialize", Commands::Initialize},
+    {"screen", Commands::Screen},
+    {"scheduler-start", Commands::SchedulerStart},
+    {"scheduler-test", Commands::SchedulerStart},
+    {"scheduler-stop", Commands::SchedulerStop},
+    {"report-util", Commands::ReportUtil},
+    {"clear", Commands::Clear},
+    {"exit", Commands::Exit},
+    {"process-smi", Commands::ProcessSmi},
+    {"vmstat", Commands::Vmstat},
+
+};
+}
+
+Commands from_str(std::string_view cmd) {
+  const auto it = cmd_map.find(cmd);
+  if (it == cmd_map.end()) {
+    throw std::invalid_argument("Unknown command: " + std::string{cmd});
+  }
+  return it->second;
+}
+
+}
+#include "config.hpp"
+
+#include <algorithm>
+#include <cmath>
+#include <fstream>
+#include <iostream>
+#include <limits>
+#include <stdexcept>
+#include <string>
+
+namespace osemu {
+
+namespace {
+bool is_power_of_2(uint32_t value) {
+  return value > 0 && (value & (value - 1)) == 0;
+}
+
+uint32_t validate_memory_value(uint32_t value, const std::string& param_name) {
+  // Different validation rules for different parameters
+  if (param_name == "mem-per-frame") {
+    // Frame sizes can be smaller, just need to be power of 2
+    if (value < 2 || value > 65536) {
+      throw std::runtime_error("Invalid memory allocation for " + param_name + ": " + std::to_string(value) + 
+                               ". Must be between 2 and 65536 bytes.");
+    }
+  }
+  // else {
+  //   // Process memory allocations must be at least 64 bytes
+  //   if (value < 64 || value > 65536) {
+  //     throw std::runtime_error("Invalid memory allocation for " + param_name + ": " + std::to_string(value) +
+  //                              ". Must be between 64 and 65536 bytes.");
+  //   }
+  // }
+  
+  if (!is_power_of_2(value)) {
+    throw std::runtime_error("Invalid memory allocation for " + param_name + ": " + std::to_string(value) + 
+                             ". Must be a power of 2.");
+  }
+  return value;
+}
+}
+
+Config::Config(uint32_t cpu, SchedulingAlgorithm sched, uint32_t quantum,
+               uint32_t freq, uint32_t minIns, uint32_t maxIns, uint32_t delay, uint32_t mem_per_frame, uint32_t min_mem_per_proc, uint32_t max_mem_per_proc, uint32_t max_overall_mem)
+    : cpuCount{std::clamp(cpu, 1u, 128u)},
+      scheduler{sched},
+      quantumCycles{
+          std::clamp(quantum, 1u, std::numeric_limits<uint32_t>::max())},
+      processGenFrequency{
+          std::clamp(freq, 1u, std::numeric_limits<uint32_t>::max())},
+      minInstructions{
+          std::clamp(minIns, 1u, std::numeric_limits<uint32_t>::max())},
+      maxInstructions{std::clamp(maxIns, minInstructions,
+                                 std::numeric_limits<uint32_t>::max())},
+      delayCyclesPerInstruction{delay},
+      max_overall_mem{validate_memory_value(max_overall_mem, "max-overall-mem")},
+      mem_per_frame{validate_memory_value(mem_per_frame, "mem-per-frame")},
+      min_mem_per_proc{validate_memory_value(min_mem_per_proc, "min-mem-per-proc")},
+      max_mem_per_proc{validate_memory_value(max_mem_per_proc, "max-mem-per-proc")} {
+  if (scheduler != SchedulingAlgorithm::RoundRobin) {
+    quantumCycles = 1;
+  }
+}
+
+Config Config::fromFile(const std::filesystem::path& file) {
+  std::ifstream in(file);
+  if (!in) {
+    throw std::runtime_error("Cannot open file: " + file.string());
+  }
+
+  Config cfg;
+  std::string key, value;
+  while (in >> key >> value) {
+    if (key == "num-cpu") {
+      cfg.cpuCount = std::stoul(value);
+    } else if (key == "scheduler") {
+      cfg.scheduler = (value == "fcfs") ? SchedulingAlgorithm::FCFS
+                                        : SchedulingAlgorithm::RoundRobin;
+    } else if (key == "quantum-cycles") {
+      cfg.quantumCycles = std::stoul(value);
+    } else if (key == "batch-process-freq") {
+      cfg.processGenFrequency = std::stoul(value);
+    } else if (key == "min-ins") {
+      cfg.minInstructions = std::stoul(value);
+    } else if (key == "max-ins") {
+      cfg.maxInstructions = std::stoul(value);
+    } else if (key == "delay-per-exec") {
+      cfg.delayCyclesPerInstruction = std::stoul(value);
+    } else if (key == "max-overall-mem"){
+      cfg.max_overall_mem = validate_memory_value(std::stoul(value), "max-overall-mem");
+    } else if (key == "mem-per-frame"){
+      cfg.mem_per_frame = validate_memory_value(std::stoul(value), "mem-per-frame");
+    } else if (key == "min-mem-per-proc"){
+      cfg.min_mem_per_proc = validate_memory_value(std::stoul(value), "min-mem-per-proc");
+    } else if (key == "max-mem-per-proc"){
+      cfg.max_mem_per_proc = validate_memory_value(std::stoul(value), "max-mem-per-proc");
+    }
+  }
+
+  if (cfg.scheduler != SchedulingAlgorithm::RoundRobin) {
+    // Quantum is irrelevant for FCFS, but a value of 0 can cause bugs.
+    // Set it to a safe, non-zero default.
+    cfg.quantumCycles = 1;
+  } else if (cfg.quantumCycles == 0) {
+    // A quantum of 0 for Round Robin is invalid. Default to 1.
+    std::cout << "Warning: quantum-cycles was 0, defaulting to 1 for Round Robin." << std::endl;
+    cfg.quantumCycles = 1;
+  }
+
+
+  return cfg;
+}
+
+}  // namespace osemu
+#include "console.hpp"
+
+#include <iostream>
+
+namespace osemu {
+
+void console_prompt() {
+  std::cout << R"(
+
+█ ▄▄  ▄███▄     ▄▀  ███   
+█   █ █▀   ▀  ▄▀    █  █  
+█▀▀▀  ██▄▄    █ ▀▄  █ ▀ ▄ 
+█     █▄   ▄▀ █   █ █  ▄▀ 
+ █    ▀███▀    ███  ███   
+  ▀                       
+                          
+)";
+  std::cout << "\e[1;32mBy: {Paul Ivan Enclonar, Joel Ethan Batac, Joshua Gilo, Peter Parker} \n";
+  std::cout << "OS Emulator v0.1\n"; 
+  std::cout << "\e[1;32mHello, Welcome to PEGP Command line! \e[0m " << std::endl;
+  std::cout << "\e[3;33mType 'exit' to quit, 'clear' to clear the screen.\e[0m" << std::endl;
+}
+
+}
+#include "dispatcher.hpp"
+
+#include <iostream>
+#include <random>
+
+#include "config.hpp"
+#include "console.hpp"
+#include "scheduler.hpp"
+#include "screen.hpp"
+
+namespace osemu {
+
+void dispatch(Commands cmd, std::vector<std::string>& args, Config& cfg,
+              Scheduler& scheduler) {
+
+  static bool initialized = false;
+  if(!initialized && cmd != Commands::Initialize){
+    std::cout << "no config loaded, please call `initialize` on a config file." << std::endl;
+    return;
+  }
+  switch (cmd) {
+    case Commands::Initialize:
+      try {
+        initialized = true;
+        scheduler.stop();
+        cfg = Config::fromFile(args.empty() ? "config.txt" : args[0]);
+        scheduler.start(cfg);
+
+        std::cout << "System initialized from '" << (args.empty() ? "config.txt" : args[0]) << "'.\n";
+
+      } catch (const std::exception& e) {
+        std::cerr << "Error initializing config: " << e.what() << '\n';
+      }
+      break;
+
+    case Commands::Screen:
+      screen(args, scheduler, cfg);
+      break;
+
+    case Commands::SchedulerStart:
+      // --- FIX ---
+      // Call the correct public method.
+      if (scheduler.is_generating()) {
+        std::cout << "Scheduler is already generating processes.\n";
+      } else {
+        // The function now takes no arguments.
+        scheduler.start_batch_generation();
+      }
+      break;
+      
+    case Commands::SchedulerStop:
+      // --- FIX ---
+      // Call the correct public method.
+      if (!scheduler.is_generating()) {
+        std::cout << "Scheduler is not currently generating processes.\n";
+      } else {
+        scheduler.stop_batch_generation();
+      }
+      
+    case Commands::ReportUtil:
+      // --- FIX ---
+      // This command should now generate a detailed report file.
+      // A simple status to the console is handled by 'screen -ls' or 'process-smi'.
+      // Let's create a new 'generate_full_report' function for this.
+      scheduler.generate_full_report(); // We will create this new function.
+      break;
+
+
+    case Commands::Clear:
+      std::cout << "\x1b[2J\x1b[H";
+      console_prompt();
+      break;
+
+    case Commands::Exit:
+      scheduler.stop();
+      break;
+      
+    case Commands::ProcessSmi:
+      scheduler.print_status(); // The 'screen -ls' command is now the process-smi
+      break;
+      
+    case Commands::Vmstat:
+      if (scheduler.get_memory_manager()) {
+        scheduler.get_memory_manager()->generate_vmstat_report(std::cout);
+      } else {
+        std::cout << "Memory manager not initialized." << std::endl;
+      }
+      break;
+  }
+}
+
+
+
+
+}
+#include "instruction_evaluator.hpp"
+
+#include "memory_manager.hpp" // Needs full definition to call methods
+#include <format>
+#include <chrono>
+
+namespace osemu {
+
+InstructionEvaluator::InstructionEvaluator(
+    std::unordered_map<std::string, uint16_t>& symbol_table,
+    std::vector<std::string>& output_log,
+    std::string& process_name,
+    size_t& memory_size)
+    : symbol_table_(symbol_table),
+      output_log_(output_log),
+      process_name_(process_name),
+      memory_size_ref_(memory_size) {}
+
+uint16_t InstructionEvaluator::get_or_create_variable_address(const std::string& var_name) {
+    if (symbol_table_.count(var_name)) {
+        return symbol_table_.at(var_name);
+    }
+
+    if (symbol_table_.size() >= 32) {
+        throw ResourceLimitException("Symbol table limit reached (32 variables max).");
+    }
+
+    // Stack grows downwards from the top of virtual memory. Each var is 2 bytes.
+    size_t new_var_offset = (symbol_table_.size() + 1) * 2;
+    if (memory_size_ref_ < 64 || new_var_offset > 64) {
+         throw std::runtime_error("Stack overflow: too many variables for 64-byte stack.");
+    }
+
+    uint16_t new_address = memory_size_ref_ - new_var_offset;
+    symbol_table_[var_name] = new_address;
+    return new_address;
+}
+
+uint16_t InstructionEvaluator::resolve_atom_value(const Atom& atom, MemoryManager& mm, uint32_t pcb_id) {
+    switch (atom.type) {
+        case Atom::NAME:
+            if (symbol_table_.count(atom.string_value)) {
+                uint16_t var_virtual_addr = symbol_table_.at(atom.string_value);
+                // DELEGATE memory reading to the MemoryManager
+                return mm.read_u16(pcb_id, var_virtual_addr);
+            }
+            return 0; // Per spec, uninitialized variable is 0.
+
+        case Atom::NUMBER:
+            return atom.number_value;
+
+        case Atom::STRING:
+            // Handle hex strings like "0x500" as numbers
+            if (atom.string_value.starts_with("0x")) {
+                try {
+                    return static_cast<uint16_t>(std::stoul(atom.string_value, nullptr, 16));
+                } catch(...) {
+                    throw std::runtime_error("Invalid hex address string: " + atom.string_value);
+                }
+            }
+            throw std::runtime_error("Cannot resolve string to a numeric value.");
+
+        default:
+            throw std::runtime_error("Unknown atom type in resolve_atom_value.");
+    }
+}
+
+std::string InstructionEvaluator::print_atom_to_string(const Atom& atom, MemoryManager& mm, uint32_t pcb_id) {
+    switch (atom.type) {
+        case Atom::STRING:
+            return atom.string_value;
+        case Atom::NUMBER:
+            return std::to_string(atom.number_value);
+        case Atom::NAME: {
+            uint16_t value = resolve_atom_value(atom, mm, pcb_id);
+            return std::to_string(value);
+        }
+        default:
+            throw std::runtime_error("Unknown atom type in print_atom_to_string.");
+    }
+}
+
+void InstructionEvaluator::evaluate(const Expr& expr, MemoryManager& mm, uint32_t pcb_id) {
+    switch (expr.type) {
+        // DECLARE, READ, WRITE, and SLEEP are handled in the PCB now.
+        // This function handles the rest.
+        case Expr::ADD: {
+            uint16_t left_val = resolve_atom_value(*expr.lhs, mm, pcb_id);
+            uint16_t right_val = resolve_atom_value(*expr.rhs, mm, pcb_id);
+            uint32_t result32 = static_cast<uint32_t>(left_val) + static_cast<uint32_t>(right_val);
+            uint16_t result = (result32 > 65535) ? 65535 : static_cast<uint16_t>(result32);
+            uint16_t dest_address = get_or_create_variable_address(expr.var_name);
+            mm.write_u16(pcb_id, dest_address, result);
+            break;
+        }
+
+        case Expr::SUB: {
+            uint16_t left_val = resolve_atom_value(*expr.lhs, mm, pcb_id);
+            uint16_t right_val = resolve_atom_value(*expr.rhs, mm, pcb_id);
+            uint16_t result = (left_val >= right_val) ? (left_val - right_val) : 0;
+            uint16_t dest_address = get_or_create_variable_address(expr.var_name);
+            mm.write_u16(pcb_id, dest_address, result);
+            break;
+        }
+
+        case Expr::CALL: {
+            if (expr.var_name == "PRINT") {
+                std::string output;
+                if (expr.atom_value) { // PRINT(arg)
+                    output = print_atom_to_string(*expr.atom_value, mm, pcb_id);
+                } else if (expr.lhs && expr.rhs) { // PRINT(arg1 + arg2)
+                    output = print_atom_to_string(*expr.lhs, mm, pcb_id) +
+                             print_atom_to_string(*expr.rhs, mm, pcb_id);
+                } else {
+                    throw std::runtime_error("Invalid PRINT call.");
+                }
+
+                auto now = std::chrono::system_clock::now();
+                auto timestamp = std::format("{:%m/%d/%Y %I:%M:%S %p}", now);
+                output_log_.push_back(std::format("({}) \"{}\"", timestamp, output));
+            } else {
+                throw std::runtime_error("Unknown function call in evaluator: " + expr.var_name);
+            }
+            break;
+        }
+
+        case Expr::FOR: {
+            uint16_t iterations = resolve_atom_value(*expr.n, mm, pcb_id);
+            for (uint16_t i = 0; i < iterations; ++i) {
+                for (const auto& instruction : expr.body) {
+                    // Recursive call for nested instructions
+                    evaluate(instruction, mm, pcb_id);
+                }
+            }
+            break;
+        }
+
+        default:
+            // This function should not be called for other instruction types.
+            // If it is, it's a logic error in the PCB.
+            break;
+    }
+}
+
+} // namespace osemu
+#include "instruction_generator.hpp"
+#include <vector>
+#include <cmath> // For std::log2, etc.
+
+namespace osemu {
+
+InstructionGenerator::InstructionGenerator()
+    : rng(std::random_device{}()),
+      value_dist(1, 1000),
+      add_value_dist(1, 10) {}
+
+std::string InstructionGenerator::generateVariableName(int index) {
+    // Generates predictable variable names like v0, v1... up to v31
+    return "v" + std::to_string(index % 32);
+}
+
+size_t InstructionGenerator::generateHeapAddress(size_t heap_size) {
+  if (heap_size <= sizeof(uint16_t)) return 0;
+  std::uniform_int_distribution<size_t> dist(0, heap_size - sizeof(uint16_t));
+
+  // old but works
+    // if (heap_size == 0) return 0; // Should not be called if heap_size is 0, but safe
+    // std::uniform_int_distribution<size_t> dist(0, heap_size - 1);
+    return dist(rng);
+}
+
+std::vector<Expr> InstructionGenerator::generateRandomProgram(
+    uint32_t min_instructions,
+    uint32_t max_instructions,
+    const std::string& process_name,
+    size_t memory_size) {
+
+    std::uniform_int_distribution<size_t> count_dist(min_instructions, max_instructions);
+    size_t instruction_count = count_dist(rng);
+
+    std::vector<Expr> instructions;
+    instructions.reserve(instruction_count);
+
+    // The heap is all memory *except* the top 64 bytes reserved for the stack.
+    const size_t STACK_SIZE = 64;
+    size_t heap_size = (memory_size > STACK_SIZE) ? (memory_size - STACK_SIZE) : 0;
+
+    // Build a list of possible instructions we can generate.
+    enum class InstrType { ADD, PRINT, DECLARE, READ, WRITE, SLEEP };
+    std::vector<InstrType> possible_instructions;
+
+    possible_instructions.push_back(InstrType::ADD);
+    possible_instructions.push_back(InstrType::PRINT);
+    possible_instructions.push_back(InstrType::DECLARE);
+    possible_instructions.push_back(InstrType::SLEEP);
+
+    if (heap_size > 0) {
+        possible_instructions.push_back(InstrType::READ);
+        possible_instructions.push_back(InstrType::WRITE);
+    }
+
+    std::uniform_int_distribution<size_t> instr_dist(0, possible_instructions.size() - 1);
+
+    for (size_t i = 0; i < instruction_count; ++i) {
+        InstrType choice = possible_instructions[instr_dist(rng)];
+
+        switch (choice) {
+            case InstrType::ADD: {
+                auto lhs = std::make_unique<Atom>(generateVariableName(i), Atom::NAME);
+                auto rhs = std::make_unique<Atom>(add_value_dist(rng));
+                instructions.push_back(Expr::make_add(generateVariableName(i + 1), std::move(lhs), std::move(rhs)));
+                break;
+            }
+            case InstrType::PRINT: {
+                auto lhs = std::make_unique<Atom>("Value of ", Atom::STRING);
+                auto rhs = std::make_unique<Atom>(generateVariableName(i), Atom::NAME);
+                instructions.push_back(Expr::make_call_concat("PRINT", std::move(lhs), std::move(rhs)));
+                break;
+            }
+            case InstrType::DECLARE: {
+                uint16_t value = value_dist(rng);
+                auto val_atom = std::make_unique<Atom>(value);
+                instructions.push_back(Expr::make_declare(generateVariableName(i), std::move(val_atom)));
+                break;
+            }
+            case InstrType::READ: {
+                auto addr_atom = std::make_unique<Atom>(static_cast<uint16_t>(generateHeapAddress(heap_size)));
+                instructions.push_back(Expr::make_read(generateVariableName(i), std::move(addr_atom)));
+                break;
+            }
+            case InstrType::WRITE: {
+                auto addr_atom = std::make_unique<Atom>(static_cast<uint16_t>(generateHeapAddress(heap_size)));
+                auto val_atom = std::make_unique<Atom>(generateVariableName(i), Atom::NAME);
+                instructions.push_back(Expr::make_write(std::move(addr_atom), std::move(val_atom)));
+                break;
+            }
+            case InstrType::SLEEP: {
+                 std::uniform_int_distribution<uint16_t> sleep_dist(1, 5);
+                 auto sleep_atom = std::make_unique<Atom>(sleep_dist(rng));
+                 instructions.push_back(Expr::make_call("SLEEP", std::move(sleep_atom)));
+                 break;
+            }
+        }
+    }
+
+    // // To be safe, always declare the first variable 'v0' so it exists for PRINT/ADD operations.
+    // if (!instructions.empty()) {
+    //     instructions.insert(instructions.begin(), Expr::make_declare("v0", std::make_unique<Atom>(static_cast<uint16_t>(0))));
+    // }
+
+    return instructions;
+}
+
+} // namespace osemu
+#include "instruction_parser.hpp"
+#include <cctype>
+#include <algorithm>
+#include <stdexcept>
+#include <sstream>
+#include <chrono>
+#include <format>
+
+namespace osemu {
+
+std::string InstructionParser::ltrim(const std::string& input) {
+    size_t start = 0;
+    while (start < input.length() && std::isspace(static_cast<unsigned char>(input[start]))) {
+        start++;
+    }
+    return input.substr(start);
+}
+
+bool InstructionParser::consume_tag(const std::string& input, const std::string& tag, std::string& remaining) {
+    std::string trimmed = ltrim(input);
+    if (trimmed.length() >= tag.length() && trimmed.substr(0, tag.length()) == tag) {
+        remaining = trimmed.substr(tag.length());
+        return true;
+    }
+    return false;
+}
+
+ParseResult InstructionParser::parse_string(const std::string& input, Atom& result) {
+    std::string trimmed = ltrim(input);
+    
+    if (trimmed.empty() || trimmed[0] != '"') {
+        return ParseResult(false, trimmed, "Expected opening quote");
+    }
+    
+    size_t i = 1;
+    while (i < trimmed.length() && trimmed[i] != '"') {
+        i++;
+    }
+    
+    if (i >= trimmed.length()) {
+        return ParseResult(false, trimmed, "Expected closing quote");
+    }
+    
+    std::string str_content = trimmed.substr(1, i - 1);
+    result = Atom(str_content, Atom::STRING);
+    
+    return ParseResult(true, trimmed.substr(i + 1));
+}
+
+ParseResult InstructionParser::parse_name(const std::string& input, Atom& result) {
+    std::string trimmed = ltrim(input);
+    
+    if (trimmed.empty() || !std::isalpha(static_cast<unsigned char>(trimmed[0]))) {
+        return ParseResult(false, trimmed, "Expected alphabetic character");
+    }
+    
+    size_t i = 0;
+    while (i < trimmed.length() && std::isalpha(static_cast<unsigned char>(trimmed[i]))) {
+        i++;
+    }
+    
+    std::string name = trimmed.substr(0, i);
+    result = Atom(name, Atom::NAME);
+    
+    return ParseResult(true, trimmed.substr(i));
+}
+
+ParseResult InstructionParser::parse_number(const std::string& input, Atom& result) {
+    std::string trimmed = ltrim(input);
+    
+    if (trimmed.empty() || !std::isdigit(static_cast<unsigned char>(trimmed[0]))) {
+        return ParseResult(false, trimmed, "Expected digit");
+    }
+    
+    size_t i = 0;
+    while (i < trimmed.length() && std::isdigit(static_cast<unsigned char>(trimmed[i]))) {
+        i++;
+    }
+    
+    std::string number_str = trimmed.substr(0, i);
+    try {
+        unsigned long number_val = std::stoul(number_str);
+        if (number_val > 65535) {
+            return ParseResult(false, trimmed, "Number out of range for uint16_t");
+        }
+        result = Atom(static_cast<uint16_t>(number_val));
+    } catch (const std::invalid_argument&) {
+        return ParseResult(false, trimmed, "Invalid number format");
+    } catch (const std::out_of_range&) {
+        return ParseResult(false, trimmed, "Number out of range for uint16_t");
+    }
+    
+    return ParseResult(true, trimmed.substr(i));
+}
+
+ParseResult InstructionParser::parse_address(const std::string& input, Atom& result) {
+    std::string trimmed = ltrim(input);
+    size_t pos = 0; // Will be updated by stoull to show how many chars were parsed
+    try {
+        // stoull will parse hex if the string starts with 0x and base is 0.
+        // We use base 0 for auto-detection.
+        unsigned long long number_val = std::stoull(trimmed, &pos, 0);
+
+        // After the call, we check if it actually parsed a hex number.
+        // 1. `pos` must be > 2 (at least "0x" and one digit).
+        // 2. The original string must start with "0x" or "0X".
+        if (pos < 3 || (trimmed.substr(0, 2) != "0x" && trimmed.substr(0, 2) != "0X")) {
+            // It might have parsed a decimal or octal number, which we don't want.
+            return ParseResult(false, trimmed, "Address must be a hexadecimal number starting with 0x");
+        }
+        
+        if (number_val > 65535) {
+            return ParseResult(false, trimmed, "Address value out of range for uint16_t");
+        }
+        
+        result = Atom(static_cast<uint16_t>(number_val));
+        
+        // The remaining string is the original trimmed string starting from `pos`.
+        return ParseResult(true, trimmed.substr(pos));
+
+    } catch (const std::invalid_argument&) {
+        // stoull throws this if no conversion could be performed at all.
+        return ParseResult(false, trimmed, "Invalid address format");
+    } catch (const std::out_of_range&) {
+        // stoull throws this if the number is too big for an unsigned long long.
+        return ParseResult(false, trimmed, "Address value out of range for uint16_t");
+    }
+}
+
+ParseResult InstructionParser::parse_atom(const std::string& input, Atom& result) {
+    std::string trimmed = ltrim(input);
+    
+    ParseResult string_result = parse_string(trimmed, result);
+    if (string_result.success) {
+        return string_result;
+    }
+    
+    ParseResult name_result = parse_name(trimmed, result);
+    if (name_result.success) {
+        return name_result;
+    }
+
+    ParseResult address_result = parse_address(trimmed, result);
+    if (address_result.success){
+        return address_result;
+    }
+    
+    ParseResult number_result = parse_number(trimmed, result);
+    if (number_result.success) {
+        return number_result;
+    }
+    
+    return ParseResult(false, trimmed, "Expected string, name, or number");
+}
+
+ParseResult InstructionParser::parse_declare(const std::string& input, Expr& result) {
+    std::string remaining;
+    if (!consume_tag(input, "DECLARE", remaining)) {
+        return ParseResult(false, input, "Expected DECLARE");
+    }
+    
+    remaining = ltrim(remaining);
+    if (!consume_tag(remaining, "(", remaining)) {
+        return ParseResult(false, remaining, "Expected opening parenthesis");
+    }
+    
+    Atom name_atom(0);
+    ParseResult name_result = parse_name(remaining, name_atom);
+    if (!name_result.success) {
+        return ParseResult(false, remaining, "Expected variable name");
+    }
+    remaining = name_result.remaining;
+    
+    remaining = ltrim(remaining);
+    if (!consume_tag(remaining, ",", remaining)) {
+        return ParseResult(false, remaining, "Expected comma");
+    }
+    
+    Atom value_atom(0);
+    ParseResult value_result = parse_atom(remaining, value_atom);
+    if (!value_result.success) {
+        return ParseResult(false, remaining, "Expected value");
+    }
+    remaining = value_result.remaining;
+    
+    remaining = ltrim(remaining);
+    if (!consume_tag(remaining, ")", remaining)) {
+        return ParseResult(false, remaining, "Expected closing parenthesis");
+    }
+    
+    result = Expr::make_declare(name_atom.string_value, 
+                               std::make_unique<Atom>(value_atom));
+    
+    return ParseResult(true, remaining);
+}
+
+ParseResult InstructionParser::parse_add(const std::string& input, Expr& result) {
+    std::string remaining;
+    if (!consume_tag(input, "ADD", remaining)) {
+        return ParseResult(false, input, "Expected ADD");
+    }
+    
+    remaining = ltrim(remaining);
+    if (!consume_tag(remaining, "(", remaining)) {
+        return ParseResult(false, remaining, "Expected opening parenthesis");
+    }
+    
+    Atom var_atom(0);
+    ParseResult var_result = parse_name(remaining, var_atom);
+    if (!var_result.success) {
+        return ParseResult(false, remaining, "Expected variable name");
+    }
+    remaining = var_result.remaining;
+    
+    remaining = ltrim(remaining);
+    if (!consume_tag(remaining, ",", remaining)) {
+        return ParseResult(false, remaining, "Expected comma");
+    }
+    
+    Atom lhs_atom(0);
+    ParseResult lhs_result = parse_atom(remaining, lhs_atom);
+    if (!lhs_result.success) {
+        return ParseResult(false, remaining, "Expected left operand");
+    }
+    remaining = lhs_result.remaining;
+    
+    remaining = ltrim(remaining);
+    if (!consume_tag(remaining, ",", remaining)) {
+        return ParseResult(false, remaining, "Expected comma");
+    }
+    
+    Atom rhs_atom(0);
+    ParseResult rhs_result = parse_atom(remaining, rhs_atom);
+    if (!rhs_result.success) {
+        return ParseResult(false, remaining, "Expected right operand");
+    }
+    remaining = rhs_result.remaining;
+    
+    remaining = ltrim(remaining);
+    if (!consume_tag(remaining, ")", remaining)) {
+        return ParseResult(false, remaining, "Expected closing parenthesis");
+    }
+    
+    result = Expr::make_add(var_atom.string_value,
+                           std::make_unique<Atom>(lhs_atom),
+                           std::make_unique<Atom>(rhs_atom));
+    
+    return ParseResult(true, remaining);
+}
+
+ParseResult InstructionParser::parse_sub(const std::string& input, Expr& result) {
+    std::string remaining;
+    if (!consume_tag(input, "SUBTRACT", remaining)) {
+        return ParseResult(false, input, "Expected SUBTRACT");
+    }
+    
+    remaining = ltrim(remaining);
+    if (!consume_tag(remaining, "(", remaining)) {
+        return ParseResult(false, remaining, "Expected opening parenthesis");
+    }
+    
+    Atom var_atom(0);
+    ParseResult var_result = parse_name(remaining, var_atom);
+    if (!var_result.success) {
+        return ParseResult(false, remaining, "Expected variable name");
+    }
+    remaining = var_result.remaining;
+    
+    remaining = ltrim(remaining);
+    if (!consume_tag(remaining, ",", remaining)) {
+        return ParseResult(false, remaining, "Expected comma");
+    }
+    
+    Atom lhs_atom(0);
+    ParseResult lhs_result = parse_atom(remaining, lhs_atom);
+    if (!lhs_result.success) {
+        return ParseResult(false, remaining, "Expected left operand");
+    }
+    remaining = lhs_result.remaining;
+    
+    remaining = ltrim(remaining);
+    if (!consume_tag(remaining, ",", remaining)) {
+        return ParseResult(false, remaining, "Expected comma");
+    }
+    
+    Atom rhs_atom(0);
+    ParseResult rhs_result = parse_atom(remaining, rhs_atom);
+    if (!rhs_result.success) {
+        return ParseResult(false, remaining, "Expected right operand");
+    }
+    remaining = rhs_result.remaining;
+    
+    remaining = ltrim(remaining);
+    if (!consume_tag(remaining, ")", remaining)) {
+        return ParseResult(false, remaining, "Expected closing parenthesis");
+    }
+    
+    result = Expr::make_sub(var_atom.string_value,
+                           std::make_unique<Atom>(lhs_atom),
+                           std::make_unique<Atom>(rhs_atom));
+    
+    return ParseResult(true, remaining);
+}
+
+
+ParseResult InstructionParser::parse_read(const std::string& input, Expr& result){
+    std::string remaining;
+    if (!consume_tag(input, "READ", remaining)) {
+        return ParseResult(false, input, "Expected READ");
+    }
+    
+    remaining = ltrim(remaining);
+    if (!consume_tag(remaining, "(", remaining)) {
+        return ParseResult(false, remaining, "Expected opening parenthesis");
+    }
+    
+    Atom var_atom(0);
+    ParseResult var_result = parse_name(remaining, var_atom);
+    if (!var_result.success) {
+        return ParseResult(false, remaining, "Expected variable name");
+    }
+    remaining = var_result.remaining;
+    
+    remaining = ltrim(remaining);
+    if (!consume_tag(remaining, ",", remaining)) {
+        return ParseResult(false, remaining, "Expected comma");
+    }
+    
+    Atom address_atom(0);
+    ParseResult address_result = parse_atom(remaining, address_atom);
+    if (!address_result.success) {
+        return ParseResult(false, remaining, "Expected address value");
+    }
+    remaining = address_result.remaining;
+    
+    remaining = ltrim(remaining);
+    if (!consume_tag(remaining, ")", remaining)) {
+        return ParseResult(false, remaining, "Expected closing parenthesis");
+    }
+    
+    // Assuming Expr::make_read(string var_name, unique_ptr<Atom> address) exists
+    result = Expr::make_read(var_atom.string_value, 
+                             std::make_unique<Atom>(address_atom));
+    
+    return ParseResult(true, remaining);
+}
+
+ParseResult InstructionParser::parse_write(const std::string& input, Expr& result){
+    std::string remaining;
+    if (!consume_tag(input, "WRITE", remaining)) {
+        return ParseResult(false, input, "Expected WRITE");
+    }
+
+    remaining = ltrim(remaining);
+    if (!consume_tag(remaining, "(", remaining)) {
+        return ParseResult(false, remaining, "Expected opening parenthesis");
+    }
+
+    Atom address_atom(0);
+    ParseResult address_result = parse_atom(remaining, address_atom);
+    if (!address_result.success) {
+        return ParseResult(false, remaining, "Expected address value");
+    }
+    remaining = address_result.remaining;
+
+    remaining = ltrim(remaining);
+    if (!consume_tag(remaining, ",", remaining)) {
+        return ParseResult(false, remaining, "Expected comma");
+    }
+
+    Atom value_atom(0);
+    ParseResult value_result = parse_atom(remaining, value_atom);
+    if (!value_result.success) {
+        return ParseResult(false, remaining, "Expected value to write (variable or literal)");
+    }
+    remaining = value_result.remaining;
+
+    remaining = ltrim(remaining);
+    if (!consume_tag(remaining, ")", remaining)) {
+        return ParseResult(false, remaining, "Expected closing parenthesis");
+    }
+    
+    // Assuming Expr::make_write(unique_ptr<Atom> address, unique_ptr<Atom> value) exists
+    result = Expr::make_write(std::make_unique<Atom>(address_atom),
+                              std::make_unique<Atom>(value_atom));
+
+    return ParseResult(true, remaining);
+}
+
+
+ParseResult InstructionParser::parse_call(const std::string& input, Expr& result) {
+    std::string trimmed = ltrim(input);
+    
+    Atom name_atom(0);
+    ParseResult name_result = parse_name(trimmed, name_atom);
+    if (!name_result.success) {
+        return ParseResult(false, trimmed, "Expected function name");
+    }
+    std::string remaining = name_result.remaining;
+    
+    remaining = ltrim(remaining);
+    if (!consume_tag(remaining, "(", remaining)) {
+        return ParseResult(false, remaining, "Expected opening parenthesis");
+    }
+    
+    
+    Atom lhs_atom(0);
+    ParseResult lhs_res = parse_atom(remaining, lhs_atom);
+    if (lhs_res.success) {
+        std::string temp_remaining = ltrim(lhs_res.remaining);
+        if (!temp_remaining.empty() && temp_remaining[0] == '+') {
+            consume_tag(temp_remaining, "+", temp_remaining); 
+            
+            Atom rhs_atom(0);
+            ParseResult rhs_res = parse_atom(ltrim(temp_remaining), rhs_atom);
+            if (!rhs_res.success) {
+                return ParseResult(false, temp_remaining, "Expected right-hand side for concatenation");
+            }
+            
+            remaining = ltrim(rhs_res.remaining);
+            if (!consume_tag(remaining, ")", remaining)) {
+                return ParseResult(false, remaining, "Expected closing parenthesis after concatenation");
+            }
+            
+            result = Expr::make_call_concat(name_atom.string_value, 
+                                            std::make_unique<Atom>(lhs_atom),
+                                            std::make_unique<Atom>(rhs_atom));
+            return ParseResult(true, remaining);
+        }
+    }
+
+    
+    Atom arg_atom(0);
+    ParseResult arg_result = parse_atom(remaining, arg_atom);
+    if (!arg_result.success) {
+        return ParseResult(false, remaining, "Expected argument");
+    }
+    remaining = arg_result.remaining;
+    
+    remaining = ltrim(remaining);
+    if (!consume_tag(remaining, ")", remaining)) {
+        return ParseResult(false, remaining, "Expected closing parenthesis");
+    }
+    
+    result = Expr::make_call(name_atom.string_value,
+                            std::make_unique<Atom>(arg_atom));
+    
+    return ParseResult(true, remaining);
+}
+
+ParseResult InstructionParser::parse_for(const std::string& input, Expr& result) {
+    std::string remaining;
+    if (!consume_tag(input, "FOR", remaining)) {
+        return ParseResult(false, input, "Expected FOR");
+    }
+    
+    remaining = ltrim(remaining);
+    if (!consume_tag(remaining, "(", remaining)) {
+        return ParseResult(false, remaining, "Expected opening parenthesis");
+    }
+    
+    remaining = ltrim(remaining);
+    if (!consume_tag(remaining, "[", remaining)) {
+        return ParseResult(false, remaining, "Expected opening bracket");
+    }
+    
+    std::vector<Expr> body;
+    remaining = ltrim(remaining);
+    
+    while (!remaining.empty() && remaining[0] != ']') {
+        Expr expr(Expr::VOID_EXPR);
+        ParseResult expr_result = parse_expr(remaining, expr);
+        if (!expr_result.success) {
+            break;
+        }
+        body.push_back(std::move(expr));
+        remaining = ltrim(expr_result.remaining);
+        
+        if (!remaining.empty() && remaining[0] == ',') {
+            remaining = remaining.substr(1);
+            remaining = ltrim(remaining);
+        }
+    }
+    
+    if (!consume_tag(remaining, "]", remaining)) {
+        return ParseResult(false, remaining, "Expected closing bracket");
+    }
+    
+    remaining = ltrim(remaining);
+    if (!consume_tag(remaining, ",", remaining)) {
+        return ParseResult(false, remaining, "Expected comma");
+    }
+    
+    Atom n_atom(0);
+    ParseResult n_result = parse_atom(remaining, n_atom);
+    if (!n_result.success) {
+        return ParseResult(false, remaining, "Expected loop count");
+    }
+    remaining = n_result.remaining;
+    
+    remaining = ltrim(remaining);
+    if (!consume_tag(remaining, ")", remaining)) {
+        return ParseResult(false, remaining, "Expected closing parenthesis");
+    }
+    
+    result = Expr::make_for(std::move(body), std::make_unique<Atom>(n_atom));
+    
+    return ParseResult(true, remaining);
+}
+
+ParseResult InstructionParser::parse_expr(const std::string& input, Expr& result) {
+    std::string trimmed = ltrim(input);
+    
+    ParseResult declare_result = parse_declare(trimmed, result);
+    if (declare_result.success) {
+        return declare_result;
+    }
+    
+    ParseResult add_result = parse_add(trimmed, result);
+    if (add_result.success) {
+        return add_result;
+    }
+    
+    ParseResult sub_result = parse_sub(trimmed, result);
+    if (sub_result.success) {
+        return sub_result;
+    }
+    
+    ParseResult for_result = parse_for(trimmed, result);
+    if (for_result.success) {
+        return for_result;
+    }
+    
+    ParseResult call_result = parse_call(trimmed, result);
+    if (call_result.success) {
+        return call_result;
+    }
+
+    ParseResult read_result = parse_read(trimmed, result);
+    if (read_result.success){
+        return read_result;
+    }
+
+    ParseResult write_result = parse_write(trimmed, result);
+    if(write_result.success){
+        return write_result;
+    }
+    
+    return ParseResult(false, trimmed, "Expected expression");
+}
+
+ParseResult InstructionParser::parse_program(const std::string& input, std::vector<Expr>& result) {
+    std::string remaining = input;
+    result.clear();
+    
+    while (!remaining.empty()) {
+        remaining = ltrim(remaining);
+        if (remaining.empty()) {
+            break;
+        }
+        
+        Expr expr(Expr::VOID_EXPR);
+        ParseResult expr_result = parse_expr(remaining, expr);
+        if (!expr_result.success) {
+            return ParseResult(false, remaining, expr_result.error_msg);
+        }
+        
+        result.push_back(std::move(expr));
+        remaining = expr_result.remaining;
+    }
+    
+    return ParseResult(true, remaining);
+}
+
+}  
+#include <iostream>
+#include <memory>
+#include <string>
+
+#include "commands.hpp"
+#include "config.hpp"
+#include "console.hpp"
+#include "dispatcher.hpp"
+#include "parser.hpp"
+#include "process_control_block.hpp"
+#include "scheduler.hpp"
+
+
+int main() {
+  using namespace osemu;
+
+
+  Config cfg;
+  Scheduler scheduler;
+  console_prompt();
+
+  std::string line;
+  while (std::cout << "~ " << std::flush && std::getline(std::cin, line)) {
+    auto tokens = ParseTokens(line);
+    if (tokens.empty()) {
+      continue;
+    }
+
+    try {
+      Commands cmd = from_str(tokens.front());
+
+      tokens.erase(tokens.begin());
+      dispatch(cmd, tokens, cfg, scheduler);
+
+      if (cmd == Commands::Exit) {
+        break;
+      }
+
+
+    } catch (const std::exception& ex) {
+      std::cerr << "Error: " << ex.what() << '\n';
+    }
+  }
+
+  std::cout << "Emulator has shut down cleanly." << std::endl;
+  return 0;
+}
+#include "memory_manager.hpp"
+
+#include <climits> // For UINT32_MAX
+#include <chrono>
+#include <format>
+#include <iostream>
+
+// Include other necessary headers that might have been missed
+#include "config.hpp"
+#include "process_control_block.hpp"
+
+namespace osemu {
+
+// Helper function to calculate a unique file offset for any given page
+uint64_t get_backing_store_offset(uint32_t pcb_id, uint32_t page_id, uint32_t page_size) {
+    const uint64_t process_space_multiplier = 1000000;
+    uint64_t process_base_offset = static_cast<uint64_t>(pcb_id) * process_space_multiplier;
+    return (process_base_offset + page_id) * page_size;
+}
+
+MemoryManager::MemoryManager(const Config& config)
+    : total_memory_size_(config.max_overall_mem),
+      frame_size_(config.mem_per_frame),
+      num_frames_(total_memory_size_ / frame_size_),
+      backing_store_filename_("csopesy-backing-store.txt") {
+
+    if (total_memory_size_ == 0 || frame_size_ == 0 || total_memory_size_ % frame_size_ != 0) {
+        throw std::runtime_error("Invalid memory configuration.");
+    }
+
+    physical_memory_.resize(total_memory_size_, 0);
+
+    frames_.reserve(num_frames_);
+    for (uint32_t i = 0; i < num_frames_; ++i) {
+        frames_.emplace_back(i);
+    }
+
+    // Clear the backing store on startup for a clean run
+    std::ofstream ofs(backing_store_filename_, std::ios::trunc);
+
+    std::cout << "Memory Manager initialized with " << total_memory_size_ << " bytes ("
+              << num_frames_ << " frames of " << frame_size_ << " bytes each)." << std::endl;
+}
+
+
+// Add the is_registered function if it's missing.
+bool MemoryManager::is_registered(uint32_t pcb_id) const {
+  std::lock_guard<std::mutex> lock(memory_mutex_);
+  return page_tables_.count(pcb_id) > 0;
+}
+// You'll need this helper function in your MemoryManager.
+// Add the declaration to memory_manager.hpp
+// uint32_t get_free_frame_count() const;
+// And the implementation to memory_manager.cpp
+uint32_t MemoryManager::get_free_frame_count() const {
+  std::lock_guard<std::mutex> lock(memory_mutex_);
+  uint32_t free_count = 0;
+  for (const auto& frame : frames_) {
+    if (frame.is_free) {
+      free_count++;
+    }
+  }
+  return free_count;
+}
+
+
+// The register_process should return bool, but it will always succeed in this model.
+bool MemoryManager::register_process(std::shared_ptr<PCB> pcb) {
+  std::lock_guard<std::mutex> lock(memory_mutex_);
+  if (page_tables_.count(pcb->processID)) {
+    return true; // Already registered
+  }
+  uint32_t num_pages = (pcb->getMemorySize() + frame_size_ - 1) / frame_size_;
+  page_tables_[pcb->processID] = std::vector<PageTableEntry>(num_pages);
+  return true;
+}
+
+
+void MemoryManager::cleanup_process(uint32_t pcb_id) {
+    std::lock_guard<std::mutex> lock(memory_mutex_);
+    // Free all frames owned by this process
+    for (uint32_t i = 0; i < num_frames_; ++i) {
+        if (!frames_[i].is_free && frames_[i].pcb_id == pcb_id) {
+            frames_[i].is_free = true;
+            frames_[i].pcb_id = 0;
+            frames_[i].page_id = 0;
+        }
+    }
+    // Remove its page table
+    page_tables_.erase(pcb_id);
+}
+
+uint32_t MemoryManager::translate_address(uint32_t pcb_id, uint32_t virtual_address) {
+    if (page_tables_.find(pcb_id) == page_tables_.end()) {
+        throw AccessViolationException("Process has no registered page table.");
+    }
+
+    uint32_t page_id = virtual_address / frame_size_;
+    uint32_t offset = virtual_address % frame_size_;
+
+    if (page_id >= page_tables_[pcb_id].size()) {
+        throw AccessViolationException(
+            std::format("Address 0x{:X} is out of process bounds.", virtual_address));
+    }
+
+    auto& pte = page_tables_[pcb_id][page_id];
+
+    if (!pte.is_valid) {
+        handle_page_fault(pcb_id, virtual_address);
+        throw PageFaultException();
+    }
+
+    pte.is_referenced = true;
+    uint32_t frame_id = pte.frame_id;
+    return (frame_id * frame_size_) + offset;
+}
+uint16_t MemoryManager::read_u16(uint32_t pcb_id, uint32_t virtual_address) {
+  std::lock_guard<std::mutex> lock(memory_mutex_);
+
+  // --- NEW LOGIC TO HANDLE CROSS-PAGE READS ---
+
+  // Read the low byte (at the given virtual address)
+  uint32_t phys_addr_low = translate_address(pcb_id, virtual_address);
+  uint8_t low_byte = physical_memory_[phys_addr_low];
+
+  // Read the high byte (at the next virtual address)
+  uint32_t phys_addr_high = translate_address(pcb_id, virtual_address + 1);
+  uint8_t high_byte = physical_memory_[phys_addr_high];
+
+  // Combine them (little-endian)
+  return static_cast<uint16_t>(high_byte) << 8 | static_cast<uint16_t>(low_byte);
+}
+
+void MemoryManager::write_u16(uint32_t pcb_id, uint32_t virtual_address, uint16_t value) {
+  std::lock_guard<std::mutex> lock(memory_mutex_);
+
+  // --- NEW LOGIC TO HANDLE CROSS-PAGE WRITES ---
+
+  // Mark both pages as potentially dirty.
+  uint32_t page_id1 = virtual_address / frame_size_;
+  uint32_t page_id2 = (virtual_address + 1) / frame_size_;
+  page_tables_[pcb_id][page_id1].is_dirty = true;
+  if (page_id1 != page_id2) {
+    // Ensure the second page's entry exists before marking it
+    if (page_id2 < page_tables_[pcb_id].size()) {
+      page_tables_[pcb_id][page_id2].is_dirty = true;
+    }
+  }
+
+  // Write the low byte
+  uint8_t low_byte = static_cast<uint8_t>(value & 0xFF);
+  uint32_t phys_addr_low = translate_address(pcb_id, virtual_address);
+  physical_memory_[phys_addr_low] = low_byte;
+
+  // Write the high byte
+  uint8_t high_byte = static_cast<uint8_t>((value >> 8) & 0xFF);
+  uint32_t phys_addr_high = translate_address(pcb_id, virtual_address + 1);
+  physical_memory_[phys_addr_high] = high_byte;
+}
+void MemoryManager::handle_page_fault(uint32_t pcb_id, uint32_t virtual_address) {
+    uint32_t page_id = virtual_address / frame_size_;
+    uint32_t frame_id = allocate_frame();
+    if (frame_id == UINT32_MAX) {
+        frame_id = find_victim_frame();
+        evict_page(frame_id);
+    }
+
+    if(load_page_from_backing_store(pcb_id, page_id, frame_id)) {
+        pages_paged_in_++;
+    }
+
+    frames_[frame_id].is_free = false;
+    frames_[frame_id].pcb_id = pcb_id;
+    frames_[frame_id].page_id = page_id;
+
+    auto& page_table = page_tables_[pcb_id];
+    page_table[page_id].is_valid = true;
+    page_table[page_id].frame_id = frame_id;
+    page_table[page_id].is_referenced = true;
+    page_table[page_id].is_dirty = false;
+}
+
+uint32_t MemoryManager::allocate_frame() {
+    for (uint32_t i = 0; i < num_frames_; ++i) {
+        if (frames_[i].is_free) {
+            return i;
+        }
+    }
+    return UINT32_MAX;
+}
+
+uint32_t MemoryManager::find_victim_frame() {
+    // Simple second-chance (clock) algorithm for LRU approximation.
+    static uint32_t clock_hand = 0;
+    while (true) {
+        if (!frames_[clock_hand].is_free) {
+            uint32_t pcb_id = frames_[clock_hand].pcb_id;
+            uint32_t page_id = frames_[clock_hand].page_id;
+
+            if (page_tables_.count(pcb_id) && page_id < page_tables_[pcb_id].size()) {
+                if (page_tables_[pcb_id][page_id].is_referenced) {
+                    // Give it a second chance.
+                    page_tables_[pcb_id][page_id].is_referenced = false;
+                } else {
+                    // No second chance, this is our victim.
+                    return clock_hand;
+                }
+            }
+        }
+        clock_hand = (clock_hand + 1) % num_frames_;
+    }
+}
+
+void MemoryManager::evict_page(uint32_t frame_id) {
+    uint32_t pcb_id = frames_[frame_id].pcb_id;
+    uint32_t page_id = frames_[frame_id].page_id;
+
+    if (page_tables_.count(pcb_id) && page_id < page_tables_[pcb_id].size()) {
+        auto& pte = page_tables_[pcb_id][page_id];
+        if (pte.is_dirty) {
+            save_page_to_backing_store(pcb_id, page_id, frame_id);
+            pages_paged_out_++;
+        }
+        pte.is_valid = false;
+    }
+
+    frames_[frame_id].is_free = true;
+}
+
+void MemoryManager::save_page_to_backing_store(uint32_t pcb_id, uint32_t page_id, uint32_t frame_id) {
+    std::fstream file(backing_store_filename_, std::ios::binary | std::ios::in | std::ios::out);
+    if (!file) { file.open(backing_store_filename_, std::ios::binary | std::ios::trunc | std::ios::out); }
+
+    uint64_t offset = get_backing_store_offset(pcb_id, page_id, frame_size_);
+    uint32_t physical_address_start = frame_id * frame_size_;
+
+    file.seekp(offset);
+    file.write(reinterpret_cast<const char*>(&physical_memory_[physical_address_start]), frame_size_);
+}
+
+bool MemoryManager::load_page_from_backing_store(uint32_t pcb_id, uint32_t page_id, uint32_t frame_id) {
+    std::ifstream file(backing_store_filename_, std::ios::binary);
+    uint32_t physical_address_start = frame_id * frame_size_;
+
+    if (!file) {
+        std::fill_n(physical_memory_.begin() + physical_address_start, frame_size_, 0);
+        return false;
+    }
+
+    uint64_t offset = get_backing_store_offset(pcb_id, page_id, frame_size_);
+    file.seekg(offset);
+
+    if (file.peek() == EOF) {
+        std::fill_n(physical_memory_.begin() + physical_address_start, frame_size_, 0);
+        return false;
+    } else {
+        file.read(reinterpret_cast<char*>(&physical_memory_[physical_address_start]), frame_size_);
+        return true;
+    }
+}
+
+// Implement reporting functions using the new model
+void MemoryManager::generate_process_smi_report(std::ostream& out, const std::unordered_map<std::string, std::shared_ptr<PCB>>& all_processes) const {
+    std::lock_guard<std::mutex> lock(memory_mutex_);
+    uint32_t used_frames = 0;
+    for(const auto& frame : frames_){
+        if(!frame.is_free) used_frames++;
+    }
+    uint64_t used_mem_bytes = static_cast<uint64_t>(used_frames) * frame_size_;
+    double mem_util = (static_cast<double>(used_mem_bytes) / total_memory_size_) * 100.0;
+
+    out << std::format("Memory Usage: {}B / {}B\n", used_mem_bytes, total_memory_size_);
+    out << std::format("Memory Util: {:.2f}%\n\n", mem_util);
+
+    out << "Running processes and memory usage:\n";
+    for(const auto& pair : all_processes){
+        const auto& pcb = pair.second;
+        if (!pcb->isComplete() && !pcb->isTerminated()) {
+             out << std::format("{} {}B\n", pcb->processName, pcb->getMemorySize());
+        }
+    }
+}
+
+void MemoryManager::generate_vmstat_report(std::ostream& out) const {
+    std::lock_guard<std::mutex> lock(memory_mutex_);
+    uint32_t free_frames = 0;
+    for(const auto& frame : frames_){
+        if(frame.is_free) free_frames++;
+    }
+    uint64_t free_mem = static_cast<uint64_t>(free_frames) * frame_size_;
+    uint64_t used_mem = total_memory_size_ - free_mem;
+
+    out << "--- vmstat ---\n";
+    out << std::format("{:<10} K total memory\n", total_memory_size_);
+    out << std::format("{:<10} K used memory\n", used_mem);
+    out << std::format("{:<10} K free memory\n", free_mem);
+    out << "-----\n";
+    out << std::format("{:<10} page faults (total)\n", pages_paged_in_.load() + pages_paged_out_.load());
+    out << std::format("{:<10} pages paged in\n", pages_paged_in_.load());
+    out << std::format("{:<10} pages paged out\n", pages_paged_out_.load());
+    out << "--------------\n";
+}
+
+} // namespace osemu
+#include "parser.hpp"
+
+#include <sstream>
+
+namespace osemu {
+
+std::vector<std::string> ParseTokens(const std::string& line) {
+  std::istringstream iss(line);
+  std::vector<std::string> tokens;
+  std::string token;
+
+  while (iss >> token) {
+    //if token starts with a ", start another chain until find a token that ends with "
+    if(token.starts_with('"')){
+      std::string subtoken;
+      while(iss >> subtoken){
+        token.append(" " + subtoken);
+        if(subtoken.ends_with('"') && !subtoken.ends_with("\\\"")){
+          break;
+        }
+      }
+    }
+    tokens.push_back(token);
+  }
+
+  return tokens;
+}
+
+}
+#include "process_control_block.hpp"
+
+#include <format>
+#include <sstream>
+
+// Needs the full definition to call methods
+#include "memory_manager.hpp"
+
+namespace osemu {
+
+std::atomic<uint32_t> PCB::next_pid{1};
+
+// --- UPDATED CONSTRUCTOR ---
+PCB::PCB(std::string procName, const std::vector<Expr>& instrs, size_t memory_size)
+    : processID(next_pid++),
+      processName(std::move(procName)),
+      currentInstruction(0),
+      totalInstructions(instrs.size()),
+      creationTime(std::chrono::system_clock::now()),
+      assignedCore(std::nullopt),
+      sleepCyclesRemaining(0),
+      instructions(instrs),
+      memory_size_(memory_size), // Initialize the new member variable
+      heap_memory(memory_size, 0) // Kept for compatibility, but not used by paging
+{
+    // Initialize the evaluator with the correct constructor
+    evaluator = std::make_unique<InstructionEvaluator>(
+        this->symbol_table,
+        this->output_log,
+        this->processName,
+        this->memory_size_ // Pass the size by reference
+    );
+}
+
+// --- NEW METHOD IMPLEMENTATION ---
+void PCB::terminate(const std::string& reason) {
+    if (!terminated_) {
+        terminated_ = true;
+        termination_reason_ = reason;
+        finishTime = std::chrono::system_clock::now();
+    }
+}
+
+// --- UPDATED ---
+void PCB::step(MemoryManager& mm) {
+    if (isSleeping()) {
+        decrementSleepCycles();
+        return;
+    }
+    if (currentInstruction < instructions.size() && !isTerminated()) {
+        // executeCurrentInstruction is now responsible for incrementing the instruction pointer
+        executeCurrentInstruction(mm);
+    }
+}
+
+// --- UPDATED ---
+bool PCB::isComplete() const {
+    return currentInstruction >= totalInstructions;
+}
+
+// --- UPDATED ---
+std::string PCB::status() const {
+    auto truncated_creation_time = std::chrono::time_point_cast<std::chrono::seconds>(creationTime);
+    auto creation_time_str = std::format("{:%m/%d/%Y %I:%M:%S %p}", truncated_creation_time);
+
+    std::ostringstream oss;
+    oss << "PID:" << processID << " " << processName << " (" << creation_time_str << ")  ";
+
+    if (isTerminated()) {
+        oss << "Terminated         " << currentInstruction << " / "
+            << totalInstructions << " (" << getTerminationReason() << ")";
+    } else if (isComplete()) {
+        oss << "Finished           " << totalInstructions << " / "
+            << totalInstructions;
+    } else if (assignedCore.has_value()) {
+        oss << "Core: " << *assignedCore << "            " << currentInstruction
+            << " / " << totalInstructions;
+    } else {
+        oss << "Ready (in queue)   " << currentInstruction << " / "
+            << totalInstructions;
+    }
+    return oss.str();
+}
+
+// --- UPDATED --- The core logic for instruction execution with error handling
+bool PCB::executeCurrentInstruction(MemoryManager& mm) {
+    if (isComplete() || isTerminated()) {
+        return false;
+    }
+
+    const auto& instr = instructions[currentInstruction];
+
+    try {
+        if (instr.type == Expr::DECLARE) {
+            uint16_t value = evaluator->resolve_atom_value(*instr.atom_value, mm, this->processID);
+            uint16_t var_addr = evaluator->get_or_create_variable_address(instr.var_name);
+            mm.write_u16(processID, var_addr, value);
+        }
+        else if (instr.type == Expr::READ) {
+            uint16_t source_addr = evaluator->resolve_atom_value(*instr.atom_value, mm, this->processID);
+            uint16_t value = mm.read_u16(processID, source_addr);
+            uint16_t dest_addr = evaluator->get_or_create_variable_address(instr.var_name);
+            mm.write_u16(processID, dest_addr, value);
+        }
+        else if (instr.type == Expr::WRITE) {
+            uint16_t value = evaluator->resolve_atom_value(*instr.rhs, mm, this->processID);
+            uint16_t dest_addr = evaluator->resolve_atom_value(*instr.lhs, mm, this->processID);
+            mm.write_u16(processID, dest_addr, value);
+        }
+        else if (instr.type == Expr::CALL && instr.var_name == "SLEEP") {
+            uint16_t cycles = evaluator->resolve_atom_value(*instr.atom_value, mm, this->processID);
+            setSleepCycles(cycles);
+        }
+        else {
+            evaluator->evaluate(instr, mm, this->processID);
+        }
+
+        // --- SUCCESS ---
+        // If no exception was thrown, the instruction completed successfully.
+        currentInstruction++;
+        return true;
+
+    } catch (const PageFaultException& pfe) {
+      // NORMAL, recoverable page fault. The page has been loaded.
+      // Do nothing. The instruction pointer is NOT incremented.
+      // The process will re-try this same instruction on the next tick.
+      return false;
+    }catch (const ResourceLimitException& rle) {
+      // --- THE NEW LOGIC TO MATCH THE SPEC ---
+      // A non-fatal resource limit was hit (e.g., symbol table full).
+      // The instruction should be "ignored".
+
+      // We log the event for debugging, which is good practice.
+      output_log.push_back("Warning: " + std::string(rle.what()) + " Instruction ignored.");
+
+      // We INCREMENT the instruction pointer to move on to the next one.
+      currentInstruction++;
+
+      // We return 'true' because the step is "complete" from the scheduler's PoV.
+      // The process is healthy and should continue running.
+      return true;
+
+    } catch (const AccessViolationException& ave) {
+        // FATAL, unrecoverable memory error. Terminate the process.
+        terminate(std::string("Access Violation: ") + ave.what());
+        return false;
+
+    } catch (const std::runtime_error& re) {
+        // Any other fatal error during execution.
+        terminate(std::string("Runtime Error: ") + re.what());
+        return false;
+    }
+}
+
+// --- NO CHANGES NEEDED for the functions below ---
+
+const std::vector<std::string>& PCB::getExecutionLogs() const {
+    return evaluator->get_output_log();
+}
+
+void PCB::setSleepCycles(uint16_t cycles) {
+    sleepCyclesRemaining = cycles;
+}
+
+bool PCB::isSleeping() const {
+    return sleepCyclesRemaining > 0;
+}
+
+void PCB::decrementSleepCycles() {
+    if (sleepCyclesRemaining > 0) {
+        --sleepCyclesRemaining;
+    }
+}
+
+} // namespace osemu
+#include "scheduler.hpp"
+
+#include <algorithm>
+#include <atomic>
+#include <chrono>
+#include <fstream>
+#include <iomanip>
+#include <iostream>
+#include <memory>
+#include <random>
+#include <sstream>
+#include <thread>
+
+#include "config.hpp"
+#include "cpu_worker.h"
+#include "process_control_block.hpp"
+
+namespace osemu {
+
+
+Scheduler::Scheduler() : running_(false), batch_generating_(false), process_counter_(0) {}
+
+Scheduler::~Scheduler() {
+  if (batch_generating_.load()) {
+    stop_batch_generation();
+  }
+  if (running_.load()) {
+    stop();
+  }
+}
+
+void Scheduler::dispatch() {
+  while (running_.load()) {
+    std::shared_ptr<PCB> process;
+    if (!ready_queue_.wait_and_pop(process)) { /* ... */ }
+    if (!process) continue;
+
+    bool dispatched = false;
+    while (!dispatched && running_.load()) {
+      CpuWorker* idle_worker = nullptr;
+      for (auto& worker : cpu_workers_) {
+        if (worker->IsIdle()) { idle_worker = worker.get(); break; }
+      }
+
+      if (!idle_worker) {
+        ready_queue_.push_front(std::move(process));
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        break;
+      }
+
+      bool can_dispatch = true;
+      if (config_.scheduler == SchedulingAlgorithm::FCFS) {
+        // The spec implies FCFS is serialized. The only way to guarantee this
+        // behavior without race conditions is to check the running list.
+        std::lock_guard<std::mutex> lock(running_mutex_);
+        if (!running_processes_.empty()) {
+          can_dispatch = false;
+        }
+      }
+
+      if (can_dispatch) {
+        int quantum = (config_.scheduler == SchedulingAlgorithm::FCFS) ? -1 : config_.quantumCycles;
+        idle_worker->AssignTask(process, quantum);
+        dispatched = true;
+      } else {
+        // FCFS and another process is already running. Wait.
+        ready_queue_.push_front(std::move(process));
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        break;
+      }
+    }
+  }
+}
+void Scheduler::global_clock() {
+    while (running_.load()) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        if (!running_.load()) break;
+        {
+            std::lock_guard<std::mutex> lock(clock_mutex_);
+            ticks_++;
+        }
+        clock_cv_.notify_all();
+    }
+}
+
+void Scheduler::start(const Config& config) {
+    running_ = true;
+    config_ = config;
+
+    memory_manager_ = std::make_unique<MemoryManager>(config_);
+
+    for (uint32_t i = 0; i < config_.cpuCount; ++i) {
+        cpu_workers_.push_back(std::make_unique<CpuWorker>(i, *this));
+        cpu_workers_.back()->Start();
+    }
+
+    std::cout << "Scheduler started with " << config_.cpuCount << " cores." << std::endl;
+
+    dispatch_thread_ = std::thread(&Scheduler::dispatch, this);
+    global_clock_thread_ = std::thread(&Scheduler::global_clock, this);
+}
+
+void Scheduler::stop() {
+    running_ = false;
+    ready_queue_.shutdown();
+    clock_cv_.notify_all();
+
+    if (dispatch_thread_.joinable()) {
+        dispatch_thread_.join();
+    }
+    if (global_clock_thread_.joinable()) {
+        global_clock_thread_.join();
+    }
+    for (auto& worker : cpu_workers_) {
+        worker->Stop();
+        worker->Join();
+    }
+    cpu_workers_.clear();
+
+    memory_manager_.reset();
+    std::cout << "Scheduler stopped." << std::endl;
+}
+
+void Scheduler::submit_process(std::shared_ptr<PCB> pcb) {
+  // Initialize page table for this process if memory manager is available
+  if (memory_manager_) {
+    // --- NEW LOGIC ---
+    // Register the process with the manager so it can have a page table.
+    memory_manager_->register_process(pcb);
+  }
+
+  {
+    std::lock_guard<std::mutex> lock(map_mutex_);
+    all_processes_map_[pcb->processName] = pcb;
+  }
+  ready_queue_.push(std::move(pcb));
+}
+
+void Scheduler::print_status() const {
+  if (!memory_manager_) {
+    std::cout << "System not initialized. Cannot print status." << std::endl;
+    return;
+  }
+  double cpu_utilization;
+  size_t total_cores = config_.cpuCount;
+  size_t cores_used = 0;
+  for (const auto& worker : cpu_workers_) {
+    if (!worker->IsIdle()) {
+      ++cores_used;
+    }
+  }
+  calculate_cpu_utilization(total_cores, cores_used, cpu_utilization);
+  std::cout << std::format("CPU Utilization: {:.2f}%\n", cpu_utilization);
+  // The memory manager now handles the detailed "process-smi" style report.
+  memory_manager_->generate_process_smi_report(std::cout, all_processes_map_);
+
+  std::cout << "----------------------------------------------------------------\n";
+  std::cout << "Running processes:\n";
+  {
+    std::lock_guard<std::mutex> lock(running_mutex_);
+    for (const auto& pcb : running_processes_) {
+      std::cout << pcb->status() << std::endl;
+    }
+  }
+  std::cout << "\nFinished/Terminated processes:\n";
+  {
+    std::lock_guard<std::mutex> lock(finished_mutex_);
+    for (const auto& pcb : finished_processes_) {
+      std::cout << pcb->status() << std::endl;
+    }
+  }
+  std::cout << "----------------------------------------------------------------\n";
+}
+
+std::shared_ptr<PCB> Scheduler::find_process_by_name(const std::string& processName) const{
+  std::lock_guard<std::mutex> lock(map_mutex_);
+  
+  auto it = all_processes_map_.find(processName);
+  
+  if (it != all_processes_map_.end()) {
+    return it->second;
+  }
+
+  return nullptr;
+}
+
+void Scheduler::move_to_running(std::shared_ptr<PCB> pcb) {
+  std::lock_guard<std::mutex> lock(running_mutex_);
+  running_processes_.push_back(pcb);
+}
+
+void Scheduler::move_to_finished(std::shared_ptr<PCB> pcb) {
+  {
+    std::lock_guard<std::mutex> lock(running_mutex_);
+    std::lock_guard<std::mutex> lock2(finished_mutex_);
+    std::erase_if(running_processes_,
+                  [&](const auto& p) { return p.get() == pcb.get(); });
+    finished_processes_.push_back(std::move(pcb));
+  }
+}
+
+void Scheduler::move_to_ready(std::shared_ptr<PCB> pcb) {
+  {
+    std::lock_guard<std::mutex> lock(running_mutex_);
+    std::erase_if(running_processes_,
+                  [&](const auto& p) { return p.get() == pcb.get(); });
+  }
+
+  ready_queue_.push(std::move(pcb));
+}
+
+void Scheduler::start_batch_generation() {
+  if (batch_generating_.load()) {
+    std::cout << "Batch process generation is already running." << std::endl;
+    return;
+  }
+
+  batch_generating_ = true;
+  batch_generator_thread_ = std::make_unique<std::thread>([this]() {
+      std::random_device rd;
+      std::mt19937 gen(rd());
+    std::uniform_int_distribution<> dist(config_.min_mem_per_proc, config_.max_mem_per_proc);
+
+      while (batch_generating_.load()) {
+          // Logic to generate one process per configured frequency
+          std::this_thread::sleep_for(std::chrono::milliseconds(500)); // Simple delay
+
+          std::string process_name;
+          {
+              std::lock_guard<std::mutex> lock(process_counter_mutex_);
+              do {
+                  ++process_counter_;
+                  process_name = "p" + std::to_string(process_counter_);
+              } while (find_process_by_name(process_name) != nullptr);
+          }
+
+          size_t memory_size = dist(gen);
+          // Ensure it's a power of 2
+          memory_size = 1 << static_cast<int>(std::log2(memory_size));
+
+          auto instructions = instruction_generator_.generateRandomProgram(
+              config_.minInstructions,
+              config_.maxInstructions,
+              process_name,
+              memory_size
+          );
+
+          // Use the correct 3-argument PCB constructor
+          auto pcb = std::make_shared<PCB>(process_name, instructions, memory_size);
+          submit_process(pcb);
+      }
+  });
+  std::cout << "Started batch process generation." << std::endl;
+}
+
+
+void Scheduler::stop_batch_generation() {
+  if (!batch_generating_.exchange(false)) {
+    return;
+  }
+
+  if (batch_generator_thread_ && batch_generator_thread_->joinable()) {
+    batch_generator_thread_->join();
+  }
+  batch_generator_thread_.reset();
+
+ uint32_t count = 0;
+  {
+    std::lock_guard<std::mutex> lock(process_counter_mutex_);
+    count = process_counter_;
+  }
+  std::cout << count << " processes generated" << std::endl;
+}
+
+void Scheduler::calculate_cpu_utilization(size_t& total_cores,
+                                          size_t& cores_used,
+                                          double& cpu_utilization) const {
+
+  cpu_utilization =
+      total_cores > 0 ? (static_cast<double>(cores_used) / total_cores) * 100.0
+                      : 0.0;
+}
+
+void Scheduler::generate_full_report(const std::string& filename) const {
+  std::ofstream report_file(filename);
+  
+  if (!report_file) { // Use !is_open() for fstream
+    std::cerr << "Error: Could not open report file " << filename << std::endl;
+    return;
+  }
+
+  double cpu_utilization;
+  size_t total_cores = config_.cpuCount;
+  size_t cores_used = 0;
+  for (const auto& worker : cpu_workers_) {
+    if (!worker->IsIdle()) {
+      ++cores_used;
+    }
+  }
+
+  calculate_cpu_utilization(total_cores, cores_used, cpu_utilization);
+
+  report_file << "--- System Utilization Report ---\n";
+  report_file << "CPU utilization: " << static_cast<int>(cpu_utilization) << "%\n";
+  report_file << "Cores used: " << cores_used << "\n";
+  report_file << "Cores available: " << (total_cores - cores_used) << "\n\n";
+
+  // Also include a memory report in the file
+  if(memory_manager_) {
+    report_file << "--- Memory Manager Status ---\n";
+    memory_manager_->generate_process_smi_report(report_file, all_processes_map_);
+    report_file << "\n";
+  }
+
+  report_file << "--- Process Status ---\n";
+  report_file << "Running processes:\n";
+  {
+    std::lock_guard<std::mutex> lock(running_mutex_);
+    for (const auto& pcb : running_processes_) {
+      report_file << pcb->status() << "\n";
+    }
+  }
+
+  report_file << "\nFinished/Terminated processes:\n";
+  {
+    std::lock_guard<std::mutex> lock(finished_mutex_);
+    for (const auto& pcb : finished_processes_) {
+      report_file << pcb->status() << "\n";
+    }
+  }
+
+  report_file.close();
+  std::cout << "Full system report generated at " << filename << std::endl;
+}
+}
+
+#include "screen.hpp"
+
+#include <atomic>  
+#include <filesystem>
+#include <fstream>
+#include <iostream>
+#include <sstream>
+#include <memory>
+#include <string>
+#include <thread>  
+#include <vector>
+#include <chrono>
+
+#include "console.hpp"  
+#include "instruction_generator.hpp"
+#include "process_control_block.hpp"
+#include "instruction_parser.hpp"
+#include "scheduler.hpp"
+
+namespace osemu {
+namespace {
+
+bool is_power_of_2(size_t value) {
+  return value > 0 && (value & (value - 1)) == 0;
+}
+
+bool validate_memory_size(size_t memory_size) {
+  if (memory_size < 64 || memory_size > 65536) {
+    std::cout << "Invalid memory allocation: " << memory_size 
+              << ". Must be between 64 and 65536 bytes." << std::endl;
+    return false;
+  }
+  if (!is_power_of_2(memory_size)) {
+    std::cout << "Invalid memory allocation: " << memory_size 
+              << ". Must be a power of 2." << std::endl;
+    return false;
+  }
+  return true;
+}
+
+std::shared_ptr<PCB> find_process(const std::string& process_name,
+                                  Scheduler& scheduler) {
+  if (scheduler.find_process_by_name(process_name) != nullptr) {
+    return scheduler.find_process_by_name(process_name);
+  }
+
+  return nullptr;
+}
+
+
+void view_process_screen(const std::string& process_name, Scheduler& scheduler) {
+  // scheduler gets the process
+  try {
+    std::shared_ptr<PCB> pcb = find_process(process_name, scheduler);
+
+    if (!pcb) {
+      // Check if process was terminated due to memory access violation
+      // This would require tracking terminated processes with error reasons
+      std::cout << "Process " << process_name << " not found." << std::endl;
+      return;
+    }
+    std::cout << "\x1b[2J\x1b[H";
+
+
+    std::string input_line;
+    while (true) {
+      std::cout << "Process name: " << process_name << std::endl;
+      std::cout << "ID: "  << pcb->processID<< std::endl;
+      std::cout << "Logs:" << std::endl;
+
+      const auto& logs = pcb->getExecutionLogs();
+      if (logs.empty()) {
+        std::cout << "(No logs yet)" << std::endl;
+      } else {
+        for (const auto& log : logs) {
+          std::cout << log << std::endl;
+        }
+      }
+
+      std::cout << std::endl;
+      std::cout << "Current instruction line: "<< pcb->currentInstruction << std::endl;
+      std::cout << "Lines of code: " << pcb-> totalInstructions << std::endl;
+      std::cout << std::endl;
+
+      std::cout << "root:\\> ";
+      if (!std::getline(std::cin, input_line)) {
+        break;
+      }
+
+      if (input_line == "exit") {
+        break;
+      } else if (input_line == "process-smi") {
+
+        std::cout << "\x1b[2J\x1b[H";
+        continue;
+      } else {
+        std::cout << "Unknown command: " << input_line << std::endl;
+        std::cout << "Available commands: process-smi, exit" << std::endl;
+      }
+    }
+
+
+    std::cout << "\x1b[2J\x1b[H";
+    console_prompt();
+  }
+  catch (const std::exception& e) {
+    std::cout << e.what() << std::endl;
+
+  }
+
+}
+
+bool create_process(const std::string& process_name, size_t memory_size, Scheduler& scheduler, Config& config) {
+  if (scheduler.find_process_by_name(process_name) != nullptr) {
+    std::cerr << "Error: Process '" << process_name << "' already exists." << std::endl;
+    return false;
+  }
+  if (!validate_memory_size(memory_size)) {
+    return false;
+  }
+  if (memory_size > config.max_overall_mem) {
+    std::cerr << std::format("Error: Process memory {}B exceeds system limit {}B.", memory_size, config.max_overall_mem) << std::endl;
+    return false;
+  }
+
+  InstructionGenerator generator;
+  auto instructions = generator.generateRandomProgram(config.minInstructions, config.maxInstructions, process_name, memory_size);
+  auto pcb = std::make_shared<PCB>(process_name, instructions, memory_size);
+
+  scheduler.submit_process(pcb);
+  std::cout << "Created process '" << process_name << "' with " << memory_size << " bytes of memory." << std::endl;
+  return true;
+}
+
+
+
+
+void create_process_from_file(const std::string& filename,
+                              const std::string& process_name,
+                              size_t memory_size, Scheduler& scheduler) {
+  std::ifstream file(filename);
+  if (!file) {
+    std::cerr << "Error: Could not open file " << filename << std::endl;
+    return;
+  }
+
+  std::stringstream buffer;
+  buffer << file.rdbuf();
+  std::string input = buffer.str();
+
+  std::vector<Expr> program;
+  ParseResult result = InstructionParser::parse_program(input, program);
+
+  if (!result.success) {
+    std::cerr << "Parse error: " << result.error_msg << std::endl;
+    std::cerr << "Remaining input: " << result.remaining << std::endl;
+    return;
+  }
+
+
+  auto pcb = std::make_shared<PCB>(process_name, program, memory_size);
+
+  std::cout << "Created process '" << process_name << "' from file '" << filename
+            << "' with " << program.size() << " instructions." << std::endl;
+
+  scheduler.submit_process(pcb);
+}
+
+
+std::string unescapeQuotes(const std::string& str) {
+    std::string result;
+    bool inEscape = false;
+    
+    for (size_t i = 0; i < str.length(); ++i) {
+        if (str[i] == '\\' && i + 1 < str.length() && str[i + 1] == '"') {
+            // Skip the escape sequence for a quote
+            result += '"';
+            ++i; // Skip the next character (the quote)
+        } else {
+            result += str[i];
+        }
+    }
+
+    return result;
+}
+
+std::string transformInstructions(const std::string& input) {
+    std::string result;
+    std::string tempInput = input;
+    
+    // Remove the starting and ending double quotes
+    if (!tempInput.empty() && tempInput[0] == '"') {
+        tempInput = tempInput.substr(1, tempInput.size() - 2);  // Remove quotes
+    }
+    
+    // Unescape all double quotes
+    tempInput = unescapeQuotes(tempInput);
+    
+    // Split the input by semicolons and convert to proper format
+    std::istringstream stream(tempInput);
+    std::string instruction;
+    
+    while (std::getline(stream, instruction, ';')) {
+        // Trim whitespace
+        size_t start = instruction.find_first_not_of(" \t");
+        if (start == std::string::npos) continue; // Skip empty instructions
+        size_t end = instruction.find_last_not_of(" \t");
+        instruction = instruction.substr(start, end - start + 1);
+        
+        if (instruction.empty()) continue;
+        
+        // Parse different instruction types
+        if (instruction.find("DECLARE ") == 0) {
+            // Format: DECLARE varA 10 -> DECLARE(varA, 10)
+            std::istringstream iss(instruction);
+            std::string cmd, var, value;
+            iss >> cmd >> var >> value;
+            result += cmd + "(" + var + ", " + value + ")\n";
+        }
+        else if (instruction.find("ADD ") == 0) {
+            // Format: ADD varA varA varB -> ADD(varA, varA, varB)
+            std::istringstream iss(instruction);
+            std::string cmd, var1, var2, var3;
+            iss >> cmd >> var1 >> var2 >> var3;
+            result += cmd + "(" + var1 + ", " + var2 + ", " + var3 + ")\n";
+        }
+        else if (instruction.find("SUB ") == 0) {
+            // Format: SUB varA varB varC -> SUB(varA, varB, varC)
+            std::istringstream iss(instruction);
+            std::string cmd, var1, var2, var3;
+            iss >> cmd >> var1 >> var2 >> var3;
+            result += cmd + "(" + var1 + ", " + var2 + ", " + var3 + ")\n";
+        }
+        else if (instruction.find("WRITE ") == 0) {
+            // Format: WRITE 0x500 varA -> WRITE(0x500, varA)
+            std::istringstream iss(instruction);
+            std::string cmd, addr, value;
+            iss >> cmd >> addr >> value;
+            result += cmd + "(" + addr + ", " + value + ")\n";
+        }
+        else if (instruction.find("READ ") == 0) {
+            // Format: READ varC 0x500 -> READ(varC, 0x500)
+            std::istringstream iss(instruction);
+            std::string cmd, var, addr;
+            iss >> cmd >> var >> addr;
+            result += cmd + "(" + var + ", " + addr + ")\n";
+        }
+        else if (instruction.find("PRINT(") == 0) {
+            // Already in correct format, just add newline
+            result += instruction + "\n";
+        }
+        else if (instruction.find("PRINT ") == 0) {
+            // Handle PRINT with space - this shouldn't happen in the test format but just in case
+            result += instruction + "\n";
+        }
+        else if (instruction.find("SLEEP ") == 0) {
+            // Format: SLEEP 1 -> SLEEP(1)
+            std::istringstream iss(instruction);
+            std::string cmd, value;
+            iss >> cmd >> value;
+            result += cmd + "(" + value + ")\n";
+        }
+        else {
+            // For any other format, try to parse as generic command
+            std::istringstream iss(instruction);
+            std::string cmd;
+            iss >> cmd;
+            
+            result += cmd + "(";
+            std::string arg;
+            bool first = true;
+            while (iss >> arg) {
+                if (!first) result += ", ";
+                result += arg;
+                first = false;
+            }
+            result += ")\n";
+        }
+    }
+
+    return result;
+}
+
+
+void create_process_from_string(const std::string& process_name, size_t memory, const std::string& instructions, Config& config, Scheduler& scheduler){
+  //remove starting and ending "
+  //unescape all \"
+  
+  // Validate memory size according to MO2 requirements
+  if (!validate_memory_size(memory)) {
+    return;
+  }
+  
+  if (memory > config.max_overall_mem) {
+    std::cerr << "Error: Process exceeds overall memory limit.\n";
+    return;
+  }
+
+  std::string input = transformInstructions(instructions);
+  std::vector<Expr> program;
+  ParseResult result = InstructionParser::parse_program(input, program);
+
+  if (!result.success) {
+    std::cerr << "Parse error: " << result.error_msg << std::endl;
+    std::cerr << "Remaining input: " << result.remaining << std::endl;
+    return;
+  }
+
+  auto pcb = std::make_shared<PCB>(process_name, program, memory);
+
+  std::cout << "Created process '" << process_name << " with " << memory << "bytes of memory." << std::endl;
+  
+  scheduler.submit_process(pcb);
+
+}
+
+enum class ScreenCommand { Start, Resume, List, File, Custom, Unknown };
+
+void display_usage() {
+  std::cout
+      << "Usage:\n"
+      << "  screen -s <name> <memory_size>   Start a new process with the given name and memory size.\n"
+      << "  screen -r <name>     View the real-time log of a running process.\n"
+      << "  screen -ls           List all active processes.\n"
+      << "  screen -f <file> <name>  Load process from .opesy file.\n"
+      << "  screen -c <name> <process_memory_size> \"<instructions>\" Make a custom process with instructions\n" ;
+}
+
+ScreenCommand parse_command(const std::string& cmd) {
+  if (cmd == "-s") return ScreenCommand::Start;
+  if (cmd == "-r") return ScreenCommand::Resume;
+  if (cmd == "-ls") return ScreenCommand::List;
+  if (cmd == "-f") return ScreenCommand::File;
+  if (cmd == "-c") return ScreenCommand::Custom;
+  return ScreenCommand::Unknown;
+}
+
+}  
+
+
+void screen(std::vector<std::string>& args, Scheduler& scheduler, Config& config) {
+  if (args.empty()) {
+    display_usage();
+    return;
+  }
+  // parse command returns args after "screen" so args[0] = -s, -r, -c
+  // maps to a ScreenCommand
+  const ScreenCommand cmd = parse_command(args[0]);
+  switch (cmd) {
+    case ScreenCommand::Start: {
+
+      if (args.size() != 3) {
+        std::cout << "Usage: screen -s <name> <memory_size>" << std::endl;
+        return;
+      }
+      try {
+        size_t mem_size = std::stoull(args[2]);
+                create_process(args[1], mem_size, scheduler, config);
+      } catch (const std::exception& e) {
+        std::cerr << "Error: Invalid memory size '" << args[2] << "'." << std::endl;
+      }
+      break;
+    }
+    case ScreenCommand::Resume:
+      if (args.size() != 2) {
+        display_usage();
+        return;
+      }
+      view_process_screen(args[1], scheduler);
+      break;
+
+    case ScreenCommand::List:
+      scheduler.print_status();
+      break;
+
+    case ScreenCommand::File:
+      if (args.size() != 3) {
+        display_usage();
+        return;
+      }
+    {
+      size_t mem_size  = static_cast<size_t>(std::stoull(args[2]));
+      create_process_from_file(args[1], args[2], mem_size, scheduler);
+    }
+      break;
+
+    case ScreenCommand::Custom:
+      size_t num;
+
+      //error handling
+      if(args.size() != 4){
+        display_usage();
+        return;
+      } 
+
+      //more error handling
+      try {
+        num = std::stoul(args[2]);
+      } catch(...) {
+        std::cout << "Please input a valid number for process_memory_size" << std::endl;
+      }
+
+      create_process_from_string(args[1], num, args[3], config,scheduler);
+
+    break;
+    case ScreenCommand::Unknown:
+    default:
+      std::cout << "Unknown screen command: " << args[0] << "\n";
+      display_usage();
+      break;
+  }
+}
+
+}

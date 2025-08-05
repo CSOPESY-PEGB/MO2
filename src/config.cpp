@@ -1,11 +1,12 @@
 #include "config.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <fstream>
+#include <iostream>
 #include <limits>
 #include <stdexcept>
 #include <string>
-#include <cmath>
 
 namespace osemu {
 
@@ -22,13 +23,14 @@ uint32_t validate_memory_value(uint32_t value, const std::string& param_name) {
       throw std::runtime_error("Invalid memory allocation for " + param_name + ": " + std::to_string(value) + 
                                ". Must be between 2 and 65536 bytes.");
     }
-  } else {
-    // Process memory allocations must be at least 64 bytes
-    if (value < 64 || value > 65536) {
-      throw std::runtime_error("Invalid memory allocation for " + param_name + ": " + std::to_string(value) + 
-                               ". Must be between 64 and 65536 bytes.");
-    }
   }
+  // else {
+  //   // Process memory allocations must be at least 64 bytes
+  //   if (value < 64 || value > 65536) {
+  //     throw std::runtime_error("Invalid memory allocation for " + param_name + ": " + std::to_string(value) +
+  //                              ". Must be between 64 and 65536 bytes.");
+  //   }
+  // }
   
   if (!is_power_of_2(value)) {
     throw std::runtime_error("Invalid memory allocation for " + param_name + ": " + std::to_string(value) + 
@@ -94,6 +96,18 @@ Config Config::fromFile(const std::filesystem::path& file) {
       cfg.max_mem_per_proc = validate_memory_value(std::stoul(value), "max-mem-per-proc");
     }
   }
+
+  if (cfg.scheduler != SchedulingAlgorithm::RoundRobin) {
+    // Quantum is irrelevant for FCFS, but a value of 0 can cause bugs.
+    // Set it to a safe, non-zero default.
+    cfg.quantumCycles = 1;
+  } else if (cfg.quantumCycles == 0) {
+    // A quantum of 0 for Round Robin is invalid. Default to 1.
+    std::cout << "Warning: quantum-cycles was 0, defaulting to 1 for Round Robin." << std::endl;
+    cfg.quantumCycles = 1;
+  }
+
+
   return cfg;
 }
 
