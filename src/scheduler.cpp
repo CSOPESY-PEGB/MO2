@@ -148,20 +148,16 @@ void Scheduler::submit_process(std::shared_ptr<PCB> pcb) {
     // It is impossible for it to run. Reject it immediately.
     pcb->terminate("Memory request exceeds total system memory");
 
-    // Move it directly to finished without bothering the memory manager or ready queue.
+    // // Move it directly to finished without bothering the memory manager or ready queue.
     {
       std::scoped_lock lock(finished_mutex_, map_mutex_);
-      all_processes_map_[pcb->processName] = pcb; // Still track it for reports
       finished_processes_.push_back(std::move(pcb));
     }
-    std::cout << "Rejected process " << pcb->processName << ": memory request ("
-              << pcb->getMemorySize() << "B) is larger than total physical memory ("
-              << config_.max_overall_mem << "B)." << std::endl;
+    // std::cout << "Rejected process " << pcb->processName << ": memory request ("
+    //           << pcb->getMemorySize() << "B) is larger than total physical memory ("
+    //           << config_.max_overall_mem << "B)." << std::endl;
     return; // Stop here. Do not submit to ready queue.
-  }
-  // ===================================================================
-  // ======================= END OF FIX ================================
-  // ===================================================================
+  } else {
 
   if (memory_manager_) {
     memory_manager_->register_process(pcb);
@@ -172,6 +168,10 @@ void Scheduler::submit_process(std::shared_ptr<PCB> pcb) {
     all_processes_map_[pcb->processName] = pcb;
   }
   ready_queue_.push(std::move(pcb));
+  }
+  // ===================================================================
+  // ======================= END OF FIX ================================
+  // ===================================================================
 }
 
 void Scheduler::print_status() const {
@@ -278,6 +278,7 @@ void Scheduler::start_batch_generation() {
       while (batch_generating_.load()) {
           size_t current_ticks = get_ticks();
 
+
           // Check if enough ticks have passed based on the frequency
           if (current_ticks >= last_generation_tick + config_.processGenFrequency) {
               last_generation_tick = current_ticks; // Update the time of last generation
@@ -294,15 +295,14 @@ void Scheduler::start_batch_generation() {
                   memory_size,
                   config_.mem_per_frame
               );
-
               // Only submit if instructions were actually generated
               if (instructions.empty()) {
                   // This can happen if memory config is too small to page
                   continue;
               }
-
               auto pcb = std::make_shared<PCB>(process_name, instructions, memory_size);
               submit_process(pcb);
+              // print the process name and memory size
           }
 
           // Use a short sleep to prevent this thread from busy-waiting and
