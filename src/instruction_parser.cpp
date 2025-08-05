@@ -388,62 +388,63 @@ ParseResult InstructionParser::parse_write(const std::string& input, Expr& resul
 }
 
 
+// In osemu/instruction_parser.cpp
+// REPLACE the entire parse_call function with this new version.
+
 ParseResult InstructionParser::parse_call(const std::string& input, Expr& result) {
     std::string trimmed = ltrim(input);
-    
+
     Atom name_atom(0);
     ParseResult name_result = parse_name(trimmed, name_atom);
     if (!name_result.success) {
         return ParseResult(false, trimmed, "Expected function name");
     }
     std::string remaining = name_result.remaining;
-    
+
     remaining = ltrim(remaining);
     if (!consume_tag(remaining, "(", remaining)) {
-        return ParseResult(false, remaining, "Expected opening parenthesis");
-    }
-    
-    
-    Atom lhs_atom(0);
-    ParseResult lhs_res = parse_atom(remaining, lhs_atom);
-    if (lhs_res.success) {
-        std::string temp_remaining = ltrim(lhs_res.remaining);
-        if (!temp_remaining.empty() && temp_remaining[0] == '+') {
-            consume_tag(temp_remaining, "+", temp_remaining); 
-            
-            Atom rhs_atom(0);
-            ParseResult rhs_res = parse_atom(ltrim(temp_remaining), rhs_atom);
-            if (!rhs_res.success) {
-                return ParseResult(false, temp_remaining, "Expected right-hand side for concatenation");
-            }
-            
-            remaining = ltrim(rhs_res.remaining);
-            if (!consume_tag(remaining, ")", remaining)) {
-                return ParseResult(false, remaining, "Expected closing parenthesis after concatenation");
-            }
-            
-            result = Expr::make_call_concat(name_atom.string_value, 
-                                            std::make_unique<Atom>(lhs_atom),
-                                            std::make_unique<Atom>(rhs_atom));
-            return ParseResult(true, remaining);
-        }
+        return ParseResult(false, remaining, "Expected opening parenthesis for function call");
     }
 
-    
-    Atom arg_atom(0);
-    ParseResult arg_result = parse_atom(remaining, arg_atom);
-    if (!arg_result.success) {
-        return ParseResult(false, remaining, "Expected argument");
+    // --- NEW LOGIC TO HANDLE CONCATENATION ---
+    Atom lhs_atom(0);
+    ParseResult lhs_res = parse_atom(remaining, lhs_atom);
+    if (!lhs_res.success) {
+        // If we can't even parse the first argument, fail.
+        return ParseResult(false, remaining, "Expected at least one argument for function call");
     }
-    remaining = arg_result.remaining;
-    
-    remaining = ltrim(remaining);
+
+    // Check for a '+' sign indicating concatenation
+    std::string temp_remaining = ltrim(lhs_res.remaining);
+    if (consume_tag(temp_remaining, "+", temp_remaining)) {
+        // Concatenation detected! Try to parse the second part.
+        Atom rhs_atom(0);
+        ParseResult rhs_res = parse_atom(ltrim(temp_remaining), rhs_atom);
+        if (!rhs_res.success) {
+            return ParseResult(false, temp_remaining, "Expected right-hand side for concatenation in function call");
+        }
+
+        remaining = ltrim(rhs_res.remaining);
+        if (!consume_tag(remaining, ")", remaining)) {
+            return ParseResult(false, remaining, "Expected closing parenthesis after concatenation");
+        }
+
+        // Create a special concatenation call expression
+        result = Expr::make_call_concat(name_atom.string_value,
+                                        std::make_unique<Atom>(lhs_atom),
+                                        std::make_unique<Atom>(rhs_atom));
+        return ParseResult(true, remaining);
+    }
+
+    // --- OLD LOGIC FOR A SINGLE ARGUMENT ---
+    // If no '+' was found, it's a simple single-argument call.
+    remaining = ltrim(lhs_res.remaining);
     if (!consume_tag(remaining, ")", remaining)) {
-        return ParseResult(false, remaining, "Expected closing parenthesis");
+        return ParseResult(false, remaining, "Expected closing parenthesis for single-argument call");
     }
-    
+
     result = Expr::make_call(name_atom.string_value,
-                            std::make_unique<Atom>(arg_atom));
+                             std::make_unique<Atom>(lhs_atom));
     
     return ParseResult(true, remaining);
 }

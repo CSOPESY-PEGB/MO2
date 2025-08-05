@@ -1,68 +1,73 @@
 #ifndef OSEMU_PROCESS_CONTROL_BLOCK_H_
 #define OSEMU_PROCESS_CONTROL_BLOCK_H_
 
-#include "instruction_evaluator.hpp"
-
-
+#include <atomic>
 #include <chrono>
 #include <memory>
 #include <optional>
 #include <string>
 #include <vector>
-#include <atomic>
-#include <map>
+#include <unordered_map>
+
+#include "instruction_evaluator.hpp" // Needs full definition to hold a unique_ptr
 
 namespace osemu {
 
-class InstructionEvaluator;
+// Forward declare to avoid circular includes
 class MemoryManager;
 
 class PCB : public std::enable_shared_from_this<PCB> {
- public:
-  PCB(std::string procName, size_t totalLines, MemoryManager* memory_manager = nullptr);
-  PCB(std::string procName, const std::vector<Expr>& instructions, MemoryManager* memory_manager = nullptr);
-  PCB(std::string procName, const std::vector<Expr>& instrs,
-      size_t memory_size, MemoryManager* memory_manager = nullptr);
-  static std::atomic<uint32_t> next_pid;
+private:
+    // --- NEW --- Member variables for state tracking
+    bool terminated_ = false;
+    std::string termination_reason_ = "";
+    size_t memory_size_;
 
-  void step();
-  bool isComplete() const;
-  std::string status() const;
-  
-  
-  bool executeCurrentInstruction();
-  const std::vector<std::string>& getExecutionLogs() const;
-  
-  
-  void setSleepCycles(uint16_t cycles);
-  bool isSleeping() const;
-  void decrementSleepCycles();
+public:
+    // --- UPDATED --- Constructor
+    PCB(std::string procName, const std::vector<Expr>& instrs, size_t memory_size);
 
-  uint32_t processID;
-  std::string processName;
-  size_t currentInstruction;
-  size_t totalInstructions;
-  std::chrono::system_clock::time_point creationTime;
+    static std::atomic<uint32_t> next_pid;
 
-  
-  std::optional<int> assignedCore;
-  std::chrono::system_clock::time_point finishTime;
-  
-  size_t symbol_table_limit = 32; // Limit for symbol table size
-  size_t symbol_table_size = 0; // Current size of the symbol table
+    // --- UPDATED --- Core execution functions
+    void step(MemoryManager& mm);
+    bool executeCurrentInstruction(MemoryManager& mm);
 
-  
-  std::vector<Expr> instructions;
-  uint16_t sleepCyclesRemaining;
+    // --- NEW --- Methods for state management
+    bool isTerminated() const { return terminated_; }
+    size_t getMemorySize() const { return memory_size_; }
+    void terminate(const std::string& reason);
+    const std::string& getTerminationReason() const { return termination_reason_; }
 
-  //evaluator stuff
-  std::vector<uint8_t> heap_memory; //for now, this is the raw memory representation, this will be replaced with a page table.
-  std::unordered_map<std::string, uint16_t> symbol_table; //here we store string(variable name):address(logical memory address, starts from the top of heap_memory) 
-  std::vector<std::string> output_log;
-  std::unique_ptr<InstructionEvaluator> evaluator; //evaluator takes all the top 3 members as its members too.
+    // --- EXISTING --- Public methods (no changes needed)
+    bool isComplete() const;
+    std::string status() const;
+    const std::vector<std::string>& getExecutionLogs() const;
+    void setSleepCycles(uint16_t cycles);
+    bool isSleeping() const;
+    void decrementSleepCycles();
 
+    // --- EXISTING --- Public member variables
+    uint32_t processID;
+    std::string processName;
+    size_t currentInstruction;
+    size_t totalInstructions;
+    std::chrono::system_clock::time_point creationTime;
+    std::optional<int> assignedCore;
+    std::chrono::system_clock::time_point finishTime;
+
+    std::vector<Expr> instructions;
+    uint16_t sleepCyclesRemaining;
+
+    // --- EXISTING --- Members passed to the evaluator
+    // Note: heap_memory is now obsolete but kept to avoid breaking the old evaluator constructor.
+    // The new system uses the MemoryManager instead.
+    std::vector<uint8_t> heap_memory;
+    std::unordered_map<std::string, uint16_t> symbol_table;
+    std::vector<std::string> output_log;
+    std::unique_ptr<InstructionEvaluator> evaluator;
 };
 
-}  
+} // namespace osemu
 
-#endif  
+#endif

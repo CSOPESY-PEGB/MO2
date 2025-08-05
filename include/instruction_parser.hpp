@@ -123,13 +123,7 @@ struct Expr {
         return e;
     }
 
-    static Expr make_call_concat(std::string name, std::unique_ptr<Atom> lhs, std::unique_ptr<Atom> rhs) {
-        Expr e(CALL);
-        e.var_name = std::move(name);
-        e.lhs = std::move(lhs);
-        e.rhs = std::move(rhs);
-        return e;
-    }
+
     
     static Expr make_add(std::string var, std::unique_ptr<Atom> lhs, std::unique_ptr<Atom> rhs) {
         Expr e(ADD);
@@ -174,7 +168,13 @@ struct Expr {
         e.rhs = std::move(value);    // value to write
         return e;
     }
-    
+    static Expr make_call_concat(std::string name, std::unique_ptr<Atom> lhs, std::unique_ptr<Atom> rhs) {
+        Expr e(CALL);
+        e.var_name = std::move(name);
+        e.lhs = std::move(lhs);
+        e.rhs = std::move(rhs);
+        return e;
+    }
 };
 
 struct ParseResult {

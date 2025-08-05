@@ -13,10 +13,15 @@ class ThreadSafeQueue {
   public:
   void push(T value) {
     std::lock_guard<std::mutex> lock(mutex_);
-    queue_.push(std::move(value));
+        queue_.push_back(std::move(value)); // <-- Use push_back
     cond_.notify_one();
   }
-  
+  // --- ADD THIS NEW FUNCTION ---
+  void push_front(T value) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    queue_.push_front(std::move(value)); // <-- Use push_front
+    cond_.notify_one();
+  }
   void shutdown(){
     shutdown_requested_ = true;
     cond_.notify_all();
@@ -32,21 +37,21 @@ class ThreadSafeQueue {
 
     
     value = std::move(queue_.front());
-    queue_.pop();
+        queue_.pop_front(); // <-- Use pop_front
     return true;
   }
 
   void empty() {
     std::lock_guard lock(mutex_);
     while(!queue_.empty()){
-      queue_.pop();
+      queue_.pop_front();
       std::cout << "emptied queue" << std::endl;
     }
   }
 
  private:
   mutable std::mutex mutex_;
-  std::queue<T> queue_;
+  std::deque<T> queue_; // <-- USE DEQUE
   std::condition_variable cond_;
   std::atomic_bool shutdown_requested_;
 };
