@@ -4,12 +4,18 @@
 #include <memory>
 #include <optional>
 
-#include "scheduler.hpp" // Needs full scheduler definition
+#include "scheduler.hpp"
 
 namespace osemu {
 
 CpuWorker::CpuWorker(int core_id, Scheduler& scheduler)
     : core_id_(core_id), scheduler_(scheduler) {}
+
+CpuWorker::~CpuWorker() {
+    // Ensure thread is stopped and joined on destruction
+    Stop();
+    Join();
+}
 
 void CpuWorker::Start() {
     thread_ = std::thread(&CpuWorker::Run, this);
@@ -17,7 +23,7 @@ void CpuWorker::Start() {
 
 void CpuWorker::Stop() {
     shutdown_requested_ = true;
-    condition_variable_.notify_one();
+    condition_variable_.notify_all();
 }
 
 void CpuWorker::Join() {
@@ -27,52 +33,41 @@ void CpuWorker::Join() {
 }
 
 void CpuWorker::AssignTask(std::shared_ptr<PCB> pcb, int time_quantum) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    time_quantum_ = time_quantum;
-    current_task_ = std::move(pcb);
-    is_idle_ = false;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if(shutdown_requested_.load()) return;
+        time_quantum_ = time_quantum;
+        current_task_ = std::move(pcb);
+        is_idle_ = false;
+    }
     condition_variable_.notify_one();
 }
 
 void CpuWorker::Run() {
-    // The loop condition should depend on both the scheduler's state AND its own shutdown request.
-    while (scheduler_.IsRunning() && !shutdown_requested_.load()) {
+    while (!shutdown_requested_.load()) {
         std::shared_ptr<PCB> task_to_run;
         int quantum_to_run;
 
-        { // Lock scope for accessing shared task data
+        {
             std::unique_lock<std::mutex> lock(mutex_);
-
-            // Wait until there's a task or shutdown is requested
             condition_variable_.wait(lock, [this] {
                 return shutdown_requested_.load() || !is_idle_.load();
             });
 
-            if (shutdown_requested_.load()) {
-                break; // Exit loop on shutdown
-            }
+            if (shutdown_requested_.load()) break;
 
-            if (current_task_) {
-                task_to_run = current_task_;
-                quantum_to_run = time_quantum_;
-            } else {
-                // Spurious wakeup, no task, go back to waiting
-                is_idle_ = true;
-                continue;
-            }
-        } // Lock is released here
-
-        // Execute the process outside the lock
-        ExecuteProcess(task_to_run, quantum_to_run);
-
-        // After execution, update state under lock
-        {
-            std::lock_guard<std::mutex> lock(mutex_);
-            current_task_ = nullptr;
-            is_idle_ = true;
+            task_to_run = std::move(current_task_);
+            quantum_to_run = time_quantum_;
         }
+
+        if(task_to_run) {
+            ExecuteProcess(task_to_run, quantum_to_run);
+        }
+
+        is_idle_ = true;
     }
 }
+
 
 void CpuWorker::ExecuteProcess(std::shared_ptr<PCB> pcb, int time_quantum) {
     pcb->assignedCore = core_id_;
@@ -84,39 +79,54 @@ void CpuWorker::ExecuteProcess(std::shared_ptr<PCB> pcb, int time_quantum) {
         deadline_tick = last_tick + time_quantum;
     }
 
-    while (!pcb->isComplete() && !pcb->isTerminated()) {
+    // --- SIMPLE PROGRESS DETECTOR ---
+    size_t instruction_at_start_of_turn = pcb->currentInstruction;
+    int ticks_without_progress = 0;
+    const int PROGRESS_TIMEOUT = 200; // If no progress in 200 ticks, it's deadlocked.
+
+    while (!pcb->isComplete() && !pcb->isTerminated() && !shutdown_requested_.load()) {
         if (deadline_tick.has_value() && scheduler_.get_ticks() >= *deadline_tick) {
             break; // Time slice expired
         }
 
-        if (!scheduler_.IsRunning() || shutdown_requested_.load()) {
-            break;
-        }
-// wait for next tick
         {
             std::unique_lock<std::mutex> lock(scheduler_.GetClockMutex());
             scheduler_.GetClockCondition().wait(lock, [&]() {
-                return scheduler_.get_ticks() > last_tick ||
-                       !scheduler_.IsRunning() || shutdown_requested_.load();
+                return scheduler_.get_ticks() > last_tick || shutdown_requested_.load() || !scheduler_.IsRunning();
             });
         }
 
+        if (shutdown_requested_.load() || !scheduler_.IsRunning()) break;
+
         last_tick = scheduler_.get_ticks();
 
-        // Pass the memory manager to the step function
-      if (scheduler_.IsRunning() && !shutdown_requested_.load()) {
+        size_t instruction_before_step = pcb->currentInstruction;
+
         pcb->step(*scheduler_.get_memory_manager());
-      }
+
+        if (pcb->currentInstruction > instruction_before_step) {
+            // Progress was made! Reset the timeout counter.
+            ticks_without_progress = 0;
+            instruction_at_start_of_turn = pcb->currentInstruction;
+        } else if (!pcb->isSleeping() && !pcb->isTerminated()) {
+            // No progress was made (likely a fault), increment timeout.
+            ticks_without_progress++;
+        }
+
+        if (ticks_without_progress > PROGRESS_TIMEOUT) {
+            pcb->terminate("Deadlocked (no progress)");
+            break;
+        }
     }
 
-    // After loop, check status and move PCB to the correct queue
-    pcb->assignedCore = std::nullopt; // Unassign core
-  if (pcb->isComplete() || pcb->isTerminated()) {
-    scheduler_.move_to_finished(pcb);
-  } else {
-    // Not done, so it goes back to the ready queue.
-    scheduler_.move_to_ready(pcb);
-  }
+    pcb->assignedCore = std::nullopt;
+    if (!scheduler_.IsRunning()) return;
+
+    if (pcb->isComplete() || pcb->isTerminated()) {
+        scheduler_.move_to_finished(std::move(pcb));
+    } else {
+        scheduler_.move_to_ready(std::move(pcb));
+    }
 }
 
-} // namespace osemu
+}

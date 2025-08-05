@@ -16,4 +16,4 @@ void dispatch(Commands cmd, std::vector<std::string>& args, Config& cfg,
 
 }  
 
-#endif  
+#endif

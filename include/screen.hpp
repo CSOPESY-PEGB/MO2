@@ -14,4 +14,4 @@ void screen(std::vector<std::string>& args, Scheduler& scheduler, Config& config
 
 }  
 
-#endif  
+#endif
