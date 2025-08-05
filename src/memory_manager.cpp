@@ -208,11 +208,11 @@ void MemoryManager::evict_page(uint32_t frame_id) {
     auto& pte = page_tables_.at(pcb_id)[page_id];
 
     if (pte.is_dirty) {
-      pages_paged_out_++;
       save_page_to_backing_store(pcb_id, page_id, frame_id);
     }
     pte.is_valid = false; // Mark PTE as invalid *after* potential save
   }
+  pages_paged_out_++;
   frames_[frame_id].is_free = true;
 }
 
