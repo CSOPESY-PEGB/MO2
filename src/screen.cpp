@@ -167,36 +167,41 @@ std::string unescapeQuotes(const std::string& str) {
 std::string transformInstructions(const std::string& input) {
     std::string result;
     std::string tempInput = input;
-    
+
     // Remove the starting and ending double quotes
-    if (!tempInput.empty() && tempInput[0] == '"') {
-        tempInput = tempInput.substr(1, tempInput.size() - 2);  // Remove quotes
+    if (!tempInput.empty() && tempInput.front() == '"' && tempInput.back() == '"') {
+        tempInput = tempInput.substr(1, tempInput.size() - 2);
     }
-    
+
     // Unescape all double quotes
     tempInput = unescapeQuotes(tempInput);
-    
-    // Split the input by semicolons (convert to new lines)
+
+    // Split the input by semicolons
     std::istringstream stream(tempInput);
     std::string line;
-    
+
     while (std::getline(stream, line, ';')) {
-        if (line.empty()) continue; // Skip empty lines
-        if (line.starts_with(" PRINT")){
-          result += line.substr(1);
-          break;
-        }; //dont clean print
-        // Now process each instruction
+        // Trim leading/trailing spaces
+        size_t start = line.find_first_not_of(" \t");
+        size_t end = line.find_last_not_of(" \t");
+        if (start == std::string::npos) continue; // skip empty/whitespace lines
+        line = line.substr(start, end - start + 1);
+
+        // Pass through lines that are already in the form FUNCTION(args)
+        if (line.find('(') != std::string::npos && line.back() == ')') {
+            result += line + "\n";
+            continue;
+        }
+
+        // Parse and transform other instructions
         std::istringstream instrStream(line);
         std::string instruction;
-        instrStream >> instruction; // Get the instruction (e.g., DECLARE, ADD)
+        instrStream >> instruction;
 
         result += instruction + "(";
 
-        // Process the arguments
         std::string arg;
         bool first = true;
-        
         while (instrStream >> arg) {
             if (!first) result += ", ";
             result += arg;
@@ -208,6 +213,7 @@ std::string transformInstructions(const std::string& input) {
 
     return result;
 }
+
 
 
 void create_process_from_string(const std::string& process_name, size_t memory, const std::string& instructions, Scheduler& scheduler){
