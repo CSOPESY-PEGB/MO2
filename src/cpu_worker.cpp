@@ -28,6 +28,7 @@ void CpuWorker::Join() {
 void CpuWorker::AssignTask(std::shared_ptr<PCB> pcb, int time_quantum) {
   std::lock_guard<std::mutex> lock(mutex_);
   time_quantum_ = time_quantum;
+  ticks_with_current_task_ = 0;
   current_task_ = std::move(pcb);
   is_idle_ = false;
   condition_variable_.notify_one();
@@ -53,22 +54,33 @@ void CpuWorker::Run() {
     // Execute one step if we have a task
     std::unique_lock<std::mutex> self_lock(mutex_);
     if (!is_idle_.load() && current_task_) {
-      // Execute one instruction step
-      InstructionExecutionInfo info = current_task_->step();
-      
-      if (info.result == InstructionResult::PROCESS_COMPLETE) {
-        // Process completed
-        current_task_->finishTime = std::chrono::system_clock::now();
-        if (scheduler_.memory_manager_) {
-          scheduler_.memory_manager_->free(current_task_->processID);
-        }
-        scheduler_.move_to_finished(current_task_);
+      // Check if time quantum expired (for round-robin scheduling)
+      if (time_quantum_ > 0 && ticks_with_current_task_ >= time_quantum_) {
+        // Time quantum expired - preempt the process
+        scheduler_.move_to_ready(current_task_);
         current_task_ = nullptr;
         is_idle_ = true;
-      } else if (info.result == InstructionResult::PAGE_FAULT) {
-        // Handle page fault - process will be handled by memory manager
+        ticks_with_current_task_ = 0;
+      } else {
+        // Execute one instruction step
+        InstructionExecutionInfo info = current_task_->step();
+        ticks_with_current_task_++;
+        
+        if (info.result == InstructionResult::PROCESS_COMPLETE) {
+          // Process completed
+          current_task_->finishTime = std::chrono::system_clock::now();
+          if (scheduler_.memory_manager_) {
+            scheduler_.memory_manager_->free(current_task_->processID);
+          }
+          scheduler_.move_to_finished(current_task_);
+          current_task_ = nullptr;
+          is_idle_ = true;
+          ticks_with_current_task_ = 0;
+        } else if (info.result == InstructionResult::PAGE_FAULT) {
+          // Handle page fault - process will be handled by memory manager
+        }
+        // For SUCCESS, continue executing
       }
-      // For SUCCESS, continue executing
     }
     self_lock.unlock();
     
@@ -77,9 +89,12 @@ void CpuWorker::Run() {
       std::unique_lock<std::mutex> signal_lock(scheduler_.barrier_mutex_);
       scheduler_.workers_completed_step_count_.fetch_add(1);
       scheduler_.workers_done_cv_.notify_one();
+    } // Release the lock here
 
-      // Wait for next tick signal
-      scheduler_.dispatch_go_cv_.wait(signal_lock, [&]() {
+    // Wait for next tick signal (without holding barrier_mutex_)
+    {
+      std::unique_lock<std::mutex> wait_lock(scheduler_.barrier_mutex_);
+      scheduler_.dispatch_go_cv_.wait(wait_lock, [&]() {
         return tick_ready_phase != scheduler_.tick_ready_.load() || shutdown_requested_.load() || !scheduler_.IsRunning();
       });
     }

@@ -12,6 +12,8 @@ enum class Commands {
   SchedulerStart,
   SchedulerStop,
   ReportUtil,
+  ProcessSmi,
+  Vmstat,
   Clear,
   Exit
 };

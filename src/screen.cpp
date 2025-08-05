@@ -73,7 +73,7 @@ void view_process_screen(const std::string& process_name, Scheduler& scheduler) 
       if (input_line == "exit") {
         break;
       } else if (input_line == "process-smi") {
-
+        scheduler.print_process_smi();
         std::cout << "\x1b[2J\x1b[H";
         continue;
       } else {

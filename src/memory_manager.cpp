@@ -117,7 +117,7 @@ void MemoryManager::write_memory_report(std::ostream& out) const {
   out << "Number of processes in memory: " << procs_in_mem << "\n";
   out << "Total external fragmentation in KB: " << std::fixed << std::setprecision(2)
       << (static_cast<double>(external_frag_bytes) / 1024.0) << "\n";
-  out << "Memory used (bytes): " << total_used_bytes << "MiB / " << total_memory_size_ << "MiB\n";
+  out << "Memory used (bytes): " << total_used_bytes << " / " << total_memory_size_ << "\n";
   out << "Memory utilization: " << std::fixed << std::setprecision(2) << utilization << "%\n\n";
 
   out << std::format("----end---- = {}\n", total_memory_size_);
