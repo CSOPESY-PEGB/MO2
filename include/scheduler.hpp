@@ -11,7 +11,8 @@
 #include "thread_safe_queue.hpp"
 #include "instruction_generator.hpp"
 #include "config.hpp"
-#include "memory_manager.hpp" // NEW: Include the memory manager header
+#include "memory_manager.hpp"
+#include "cpu_worker.h"
 
 namespace osemu {
 
@@ -24,6 +25,7 @@ class Scheduler {
 
   void dispatch();
   void global_clock();
+  void check_config_scheduler_for_discrepancies(const Config& config);
 
   void start(const Config& config);
   void stop();
@@ -31,28 +33,43 @@ class Scheduler {
   void submit_process(std::shared_ptr<PCB> pcb);
   void print_status() const;
 
-  void start_batch_generation();
+  void start_batch_generation(const Config& config);
   void stop_batch_generation();
   void calculate_cpu_utilization(size_t& total_cores, size_t& cores_used,
                                  double& cpu_utilization) const;
   bool is_generating() const { return batch_generating_; }
   std::shared_ptr<PCB> find_process_by_name(const std::string& name) const;
   
+  void move_to_running(std::shared_ptr<PCB> pcb);
+  void move_to_finished(std::shared_ptr<PCB> pcb);
+  void move_to_ready(std::shared_ptr<PCB> pcb);
+  
   void generate_report(const std::string& filename = "csopesy-log.txt") const;
+  void print_process_smi() const;
+  void print_vmstat() const;
 
-  size_t get_ticks(){ return ticks_.load(); } 
+  size_t get_ticks() const { return ticks_.load(); }
+  MemoryManager* get_memory_manager() const { return memory_manager_.get(); }
+  
+  // Public interface methods for CpuWorker access  
+  std::mutex& GetClockMutex() { return clock_mutex_; }
+  std::condition_variable& GetClockCondition() { return clock_cv_; }
+  bool IsRunning() const { return running_.load(); }
+  size_t GetDelayPerExecution() const { return delay_per_exec_; }
 
   std::unique_ptr<MemoryManager> memory_manager_;
 
-    // --- Barrier Synchronization for CPU Workers ---
-    std::atomic<int> workers_completed_step_count_{0}; // Count of workers done with current tick
-    std::condition_variable dispatch_go_cv_; // Scheduler notifies workers to start their tick
-    std::condition_variable workers_done_cv_; // Workers notify Scheduler they've finished their tick
-    std::mutex barrier_mutex_; // Mutex protecting barrier counts and CVs
-    
+  // --- Barrier Synchronization for CPU Workers ---
+  std::atomic<int> workers_completed_step_count_{0}; // Count of workers done with current tick
+  std::condition_variable dispatch_go_cv_; // Scheduler notifies workers to start their tick
+  std::condition_variable workers_done_cv_; // Workers notify Scheduler they've finished their tick
+  std::mutex barrier_mutex_; // Mutex protecting barrier counts and CVs
+  
  private:
+  friend class CpuWorker;
   friend class CPUWorker;
-    // --- Nested CPUWorker Class Definition ---
+  
+  // --- Nested CPUWorker Class Definition ---
   class CPUWorker {
   public:
     CPUWorker(int core_id, Scheduler& scheduler);
@@ -80,7 +97,6 @@ class Scheduler {
 
     std::mutex mutex_; // Protects `current_task_` and internal counters/flags
 
-
   private:
     std::thread thread_;
     Scheduler& scheduler_; // Reference to the parent scheduler
@@ -94,9 +110,6 @@ class Scheduler {
     void run(); // The main loop that processes ticks
   };
 
-  void move_to_running(std::shared_ptr<PCB> pcb);
-  void move_to_finished(std::shared_ptr<PCB> pcb);
-  void move_to_ready(std::shared_ptr<PCB> pcb);
   bool find_idle_cpu();
   void signal_execute();
   void find_free_cpu_and_assign();
@@ -106,11 +119,10 @@ class Scheduler {
   int total_cores_{0};
 
   std::atomic<bool> running_;
-  std::vector<std::unique_ptr<CPUWorker>> cpu_workers_;
+  std::vector<std::unique_ptr<CpuWorker>> cpu_workers_; // External CpuWorker for compatibility
+  std::vector<std::unique_ptr<CPUWorker>> vmstat_cpu_workers_; // Nested CPUWorker for vmstat integration
 
   ThreadSafeQueue<std::shared_ptr<PCB>> ready_queue_;
-
-  
 
   mutable std::mutex running_mutex_;
   mutable std::mutex finished_mutex_;
@@ -151,10 +163,13 @@ class Scheduler {
   size_t minMemPerProc{512};
   size_t maxMemPerProc{1024};
 
-  size_t minInstructions{100};
-  size_t maxInstructions{100};
-
   SchedulingAlgorithm algorithm_{SchedulingAlgorithm::FCFS};
+  
+  // Tracking for vmstat
+  std::atomic<size_t> idle_cpu_ticks_{0};
+  std::atomic<size_t> active_cpu_ticks_{0};
+  std::atomic<size_t> pages_paged_in_{0};
+  std::atomic<size_t> pages_paged_out_{0};
 
 };
 
