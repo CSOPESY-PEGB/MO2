@@ -41,6 +41,8 @@ class Scheduler {
 
   MemoryManager* get_memory_manager() { return memory_manager_.get(); }
   bool is_generating() const { return batch_generating_.load(); }
+  
+  void generate_vmstat_report(std::ostream& out) const;
 
   // For use by CpuWorker
   bool IsRunning() const { return running_.load(); }
@@ -79,6 +81,8 @@ class Scheduler {
   std::atomic<int> process_counter_{0};
 
   std::atomic<size_t> ticks_{0};
+  std::atomic<size_t> idle_ticks_{0};
+  std::atomic<size_t> active_ticks_{0};
   mutable std::mutex clock_mutex_;
   std::condition_variable clock_cv_;
 };
