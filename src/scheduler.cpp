@@ -466,50 +466,18 @@ void Scheduler::print_vmstat() const {
   uint32_t used_memory = memory_manager_->get_used_memory();
   uint32_t free_memory = memory_manager_->get_free_memory();
   
-  size_t total_cpu_ticks = idle_cpu_ticks_.load() + active_cpu_ticks_.load();
+  size_t idle_ticks = idle_cpu_ticks_.load();
+  size_t active_ticks = active_cpu_ticks_.load();
+  size_t total_ticks = idle_ticks + active_ticks;
   
-  // Convert bytes to KB for display (divide by 1024)
-  uint32_t total_kb = total_memory / 1024;
-  uint32_t used_kb = used_memory / 1024;
-  uint32_t free_kb = free_memory / 1024;
-  
-  std::cout << std::setw(12) << total_kb << " K total memory\n";
-  std::cout << std::setw(12) << used_kb << " K used memory\n";
-  std::cout << std::setw(12) << used_kb << " K active memory\n";
-  std::cout << std::setw(12) << (total_kb - used_kb) << " K inactive memory\n";
-  std::cout << std::setw(12) << free_kb << " K free memory\n";
-  std::cout << std::setw(12) << 0 << " K buffer memory\n";
-  std::cout << std::setw(12) << 0 << " K swap cache\n";
-  std::cout << std::setw(12) << 0 << " K total swap\n";
-  std::cout << std::setw(12) << 0 << " K used swap\n";
-  std::cout << std::setw(12) << 0 << " K free swap\n";
-  std::cout << std::setw(12) << active_cpu_ticks_.load() << " non-nice user cpu ticks\n";
-  std::cout << std::setw(12) << 0 << " nice user cpu ticks\n";
-  std::cout << std::setw(12) << active_cpu_ticks_.load() << " system cpu ticks\n";
-  std::cout << std::setw(12) << idle_cpu_ticks_.load() << " idle cpu ticks\n";
-  std::cout << std::setw(12) << 0 << " IO-wait cpu ticks\n";
-  std::cout << std::setw(12) << 0 << " IRQ cpu ticks\n";
-  std::cout << std::setw(12) << 0 << " softirq cpu ticks\n";
-  std::cout << std::setw(12) << 0 << " stolen cpu ticks\n";
-  std::cout << std::setw(12) << memory_manager_->get_pages_paged_in() << " pages paged in\n";
-  std::cout << std::setw(12) << memory_manager_->get_pages_paged_out() << " pages paged out\n";
-  std::cout << std::setw(12) << 0 << " pages swapped in\n";
-  std::cout << std::setw(12) << 0 << " pages swapped out\n";
-  std::cout << std::setw(12) << 0 << " interrupts\n";
-  std::cout << std::setw(12) << 0 << " CPU context switches\n";
-  std::cout << std::setw(12) << std::time(nullptr) << " boot time\n";
-  
-  size_t total_processes = 0;
-  {
-    std::lock_guard<std::mutex> lock(running_mutex_);
-    total_processes += running_processes_.size();
-  }
-  {
-    std::lock_guard<std::mutex> lock(finished_mutex_);
-    total_processes += finished_processes_.size();
-  }
-  
-  std::cout << std::setw(12) << total_processes << " forks\n";
+  std::cout << "Total memory: " << total_memory << " bytes\n";
+  std::cout << "Used memory: " << used_memory << " bytes\n";
+  std::cout << "Free memory: " << free_memory << " bytes\n";
+  std::cout << "Idle cpu ticks: " << idle_ticks << "\n";
+  std::cout << "Active cpu ticks: " << active_ticks << "\n";
+  std::cout << "Total cpu ticks: " << total_ticks << "\n";
+  std::cout << "Num paged in: " << memory_manager_->get_pages_paged_in() << "\n";
+  std::cout << "Num paged out: " << memory_manager_->get_pages_paged_out() << "\n";
 }
 
 }
