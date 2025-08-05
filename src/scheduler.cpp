@@ -17,101 +17,6 @@
 
 namespace osemu {
 
-// Nested CPUWorker implementation
-Scheduler::CPUWorker::CPUWorker(int core_id, Scheduler& scheduler)
-    : core_id_(core_id), scheduler_(scheduler) {}
-
-void Scheduler::CPUWorker::start() { 
-  thread_ = std::thread(&Scheduler::CPUWorker::run, this); 
-}
-
-void Scheduler::CPUWorker::join(){
-  if(thread_.joinable()){
-    thread_.join();
-  }
-}
-
-void Scheduler::CPUWorker::stop(){
-  shutdown_requested_ = true;
-  // Notify global barrier CVs to unblock ALL workers so they can exit gracefully.
-  scheduler_.dispatch_go_cv_.notify_all();
-  scheduler_.workers_done_cv_.notify_all();
-}
-
-void Scheduler::CPUWorker::assign_task(std::shared_ptr<PCB> pcb, int time_quantum){
-    std::lock_guard<std::mutex> lock(mutex_); // Protect internal state
-    time_quantum_assigned_ = time_quantum;
-    current_task_ = std::move(pcb);
-    steps_executed_on_this_core_ = 0; // Reset counters for new task
-    ticks_since_last_instruction_ = 0;
-    
-    // Reset all status flags for the new task
-    has_completed_task_ = false;
-    has_page_faulted_ = false;
-    needs_preemption_ = false;
-    
-    idle_ = false; // Mark worker as busy (holding a task)
-    // No cv_.notify_one() here. The run() loop will pick up the change on the next tick's signal.
-};
-
-// `run()` method - Fully synchronous, always participating in barrier
-void Scheduler::CPUWorker::run(){
-    while(scheduler_.running_.load()){
-        const bool tick_ready_phase = scheduler_.tick_ready_.load();
-        std::unique_lock<std::mutex> barrier_lock(scheduler_.barrier_mutex_);
-        // Wait for the Scheduler's "go" signal for this tick.
-        scheduler_.dispatch_go_cv_.wait(barrier_lock, [&]() {
-            return scheduler_.tick_ready_ == tick_ready_phase || shutdown_requested_.load() || !scheduler_.running_.load();
-        });
-
-        if (shutdown_requested_.load() || !scheduler_.running_.load()){
-            break; // Exit thread if shutdown requested.
-        }
-        
-        barrier_lock.unlock(); // Release global barrier mutex
-
-        std::unique_lock<std::mutex> self_lock(mutex_); // Acquire worker's private mutex
-
-        if (idle_.load()) {
-            // Worker is currently idle (no task assigned). It simply passes through this tick.
-        } else if (current_task_) { // Worker has a task and it's NOT I/O blocked.
-            ticks_since_last_instruction_++;
-            if (ticks_since_last_instruction_ >= scheduler_.delay_per_exec_) {
-                ticks_since_last_instruction_ = 0; // Reset counter for next instruction
-
-                InstructionExecutionInfo info = current_task_->step(); // Execute instruction
-                last_step_info_ = info; // Store this for the Scheduler to inspect
-
-                if (info.result == InstructionResult::PAGE_FAULT) { 
-                  has_page_faulted_ = true; 
-                }
-                else if (info.result == InstructionResult::PROCESS_COMPLETE) { 
-                  has_completed_task_ = true; 
-                }
-                else { // InstructionResult::SUCCESS
-                    steps_executed_on_this_core_++;
-                    if (scheduler_.algorithm_ == SchedulingAlgorithm::RoundRobin &&
-                        time_quantum_assigned_ != -1 && 
-                        steps_executed_on_this_core_ >= time_quantum_assigned_) {
-                        needs_preemption_ = true;
-                    }
-                }
-            }
-        }
-        
-        self_lock.unlock(); // Release worker's own mutex
-        {
-          std::unique_lock<std::mutex> signal_lock(scheduler_.barrier_mutex_); // Re-acquire global barrier mutex
-          scheduler_.workers_completed_step_count_.fetch_add(1); // Increment global counter
-          scheduler_.workers_done_cv_.notify_one();              // Notify Scheduler
-
-          scheduler_.dispatch_go_cv_.wait(signal_lock, [&]() { // Use signal_lock (holds barrier_mutex_)
-            return tick_ready_phase != scheduler_.tick_ready_.load()  || shutdown_requested_.load() || !scheduler_.running_.load();
-          });
-        }
-    }
-}
-
 Scheduler::Scheduler() : running_(false), batch_generating_(false), process_counter_(0) {}
 
 Scheduler::~Scheduler() {
@@ -136,11 +41,7 @@ void Scheduler::dispatch(){
     // This function also blocks until all cores have participated 
     signal_execute(); 
 
-    // Suspend all processes to handle page faults; not ideal in real world system 
-    // but for this simulation ensures deterministic behavior and no deadlocks
-    if (memory_manager_) {
-      memory_manager_->handle_page_faults(); 
-    }
+    // Page faults are now handled individually by CpuWorkers during execution
 
     ticks_++;
   }
@@ -200,13 +101,13 @@ void Scheduler::start(const Config& config) {
   minInstructions = config.minInstructions;
   maxInstructions = config.maxInstructions;
 
-  memory_manager_ = std::make_unique<MemoryManager>(config.max_overall_mem);
+  memory_manager_ = std::make_unique<MemoryManager>(config.max_overall_mem, config.mem_per_frame);
   mem_per_proc_ = config.min_mem_per_proc;
 
-  // Create nested CPUWorkers for vmstat integration
+  // Create CpuWorkers with vmstat integration
   for (uint32_t i = 0; i < config.cpuCount; ++i) {
-    vmstat_cpu_workers_.push_back(std::make_unique<CPUWorker>(i, *this));
-    vmstat_cpu_workers_.back()->start();
+    cpu_workers_.push_back(std::make_unique<CpuWorker>(i, *this));
+    cpu_workers_.back()->Start();
   }
 
   std::cout << "Scheduler started with " << core_count_ << " cores."
@@ -228,14 +129,7 @@ void Scheduler::stop() {
     dispatch_thread_.join();
   }
 
-  // Stop nested CPUWorkers
-  for (auto& worker : vmstat_cpu_workers_) {
-      worker->stop();
-      worker->join();
-  }
-  vmstat_cpu_workers_.clear();
-  
-  // Stop external CpuWorkers if any exist
+  // Stop CpuWorkers
   for (auto& worker : cpu_workers_) {
       worker->Stop();
       worker->Join();
@@ -357,7 +251,7 @@ void Scheduler::signal_execute(){
   std::unique_lock<std::mutex> lock(barrier_mutex_); // Acquire barrier mutex
 
   workers_done_cv_.wait(lock, [&]{
-    bool done = workers_completed_step_count_.load() >= vmstat_cpu_workers_.size();
+    bool done = workers_completed_step_count_.load() >= cpu_workers_.size();
     bool shutting_down = !running_.load();
     return done || shutting_down;
   });
@@ -366,43 +260,28 @@ void Scheduler::signal_execute(){
 }
 
 bool Scheduler::find_idle_cpu(){
-  // Free all cores that need to be freed.
-  bool flag = false; // Assume all cores are taken
+  // Count active cores and check for idle workers
+  bool has_idle = false;
   active_cores_ = 0;
 
-  for(auto const& cpu: vmstat_cpu_workers_){
-    std::unique_lock<std::mutex> worker_lock(cpu->mutex_); // Acquire worker's mutex
-    if(cpu->has_completed_task_){
-      std::shared_ptr<PCB> pcb = cpu->current_task_; // Read current_task_ safely
-      pcb->finishTime = std::chrono::system_clock::now();
-      cpu->idle_ = true;
-      cpu->has_completed_task_ = false;
-      flag = true;
-      // Clean up functions
-      move_to_finished(pcb);
-    } else if(cpu->needs_preemption_){
-        std::shared_ptr<PCB> pcb = cpu->current_task_; // Read current_task_ safely
-        cpu->idle_ = true;
-        cpu->needs_preemption_ = false;
-        flag = true;
-        move_to_ready(pcb); // Moves to ready_queue_ and removes from running_processes_
-    } else if(cpu->is_idle()){
-      flag = true;
+  for(auto const& cpu: cpu_workers_){
+    if(cpu->IsIdle()){
+      has_idle = true;
     } else {
-      active_cores_++; // Count active cores
+      active_cores_++;
     }
   }
-  return flag; // If flag is true, either we freed a process or found idle cores
+  return has_idle;
 }
 
 void Scheduler::find_free_cpu_and_assign(){
-  for(auto const& cpu: vmstat_cpu_workers_){
-    if(cpu->is_idle()){
+  for(auto const& cpu: cpu_workers_){
+    if(cpu->IsIdle()){
       std::optional<std::shared_ptr<PCB>> try_process = ready_queue_.try_pop(); 
       if(try_process.has_value()){
         std::shared_ptr<PCB> process = try_process.value();
-        process->assignedCore = cpu->core_id_;
-        cpu->assign_task(process, quantum_cycles_);
+        process->assignedCore = cpu->GetCoreId();
+        cpu->AssignTask(process, quantum_cycles_);
         move_to_running(process);
       }
     }
@@ -451,7 +330,7 @@ void Scheduler::generate_process() {
     }
 }
 
-void Scheduler::start_batch_generation(const Config& config) {
+void Scheduler::start_batch_generation() {
   if (batch_generating_.load()) {
     std::cout << "Batch process generation is already running." << std::endl;
     return;

@@ -1,4 +1,5 @@
 #include "instruction_evaluator.hpp"
+#include "memory_manager.hpp"
 #include <string>
 #include <vector>
 #include <memory>
@@ -15,11 +16,15 @@ InstructionEvaluator::InstructionEvaluator(
     std::vector<uint8_t>& heap_memory, 
     std::unordered_map<std::string, uint16_t>& symbol_table, 
     std::vector<std::string>& output_log, 
-    std::string& process_name) 
+    std::string& process_name,
+    uint32_t pcb_id,
+    MemoryManager* memory_manager) 
     : heap_memory(heap_memory), 
     symbol_table(symbol_table), 
     output_log(output_log), 
-    process_name(process_name) {}
+    process_name(process_name),
+    pcb_id_(pcb_id),
+    memory_manager_(memory_manager) {}
 
 uint16_t InstructionEvaluator::get_or_create_variable_address(const std::string& var_name) {
     // 1. Check if the variable already exists.
@@ -100,7 +105,7 @@ void InstructionEvaluator::evaluate(const Expr& expr) {
 
         case Expr::WRITE:{
             //idk how to validate this actually, this is temporary lang
-            if (!expr.lhs->number_value >= heap_memory.size()) {
+            if (expr.lhs->number_value >= heap_memory.size()) {
                 throw std::runtime_error("Invalid WRITE!");
             }
             handle_write(*expr.lhs, *expr.rhs);
@@ -217,18 +222,60 @@ void InstructionEvaluator::handle_declare(const std::string& var_name, const Ato
 }
 
 void InstructionEvaluator::handle_read(const std::string& var_name, const Atom& rhs) {
-    uint16_t source_address = rhs.number_value;
-    uint16_t value_read = read_u16_from_heap(source_address);
+    uint32_t source_address;
+    
+    // Handle hex address parsing
+    if (rhs.type == Atom::STRING && rhs.string_value.starts_with("0x")) {
+        source_address = parse_hex_address(rhs.string_value);
+    } else {
+        source_address = rhs.number_value;
+    }
+    
+    uint16_t value_read = 0;
+    
+    // Use demand paging if memory manager is available
+    if (memory_manager_) {
+        if (!read_u16_with_paging(source_address, value_read)) {
+            // Per specification: "If the memory block isn't initialized, the uint16 value is 0"
+            // Don't throw exception for invalid addresses, just use value_read = 0 (already set above)
+        }
+    } else {
+        // Fallback to old heap memory system
+        try {
+            value_read = read_u16_from_heap(static_cast<uint16_t>(source_address));
+        } catch (const std::runtime_error&) {
+            // Per specification: return 0 for invalid/uninitialized memory addresses
+            value_read = 0;
+        }
+    }
+    
     uint16_t dest_address = get_or_create_variable_address(var_name);
-    write_u16_to_mem(dest_address, value_read); // This should be privileged_write...
+    write_u16_to_mem(dest_address, value_read);
 }
 
 
-//ADD VALIDATION HERE!!
 void InstructionEvaluator::handle_write(const Atom& address_atom, const Atom& rhs) {
-    uint16_t dest_address = address_atom.number_value;
+    uint32_t dest_address;
+    
+    // Handle hex address parsing
+    if (address_atom.type == Atom::STRING && address_atom.string_value.starts_with("0x")) {
+        dest_address = parse_hex_address(address_atom.string_value);
+    } else {
+        dest_address = address_atom.number_value;
+    }
+    
     uint16_t value_to_write = resolve_atom_value(rhs);
-    write_u16_to_heap(dest_address, value_to_write);
+    
+    // Use demand paging if memory manager is available
+    if (memory_manager_) {
+        if (!write_u16_with_paging(dest_address, value_to_write)) {
+            throw std::runtime_error("Memory access violation at address 0x" + 
+                                   std::format("{:X}", dest_address));
+        }
+    } else {
+        // Fallback to old heap memory system
+        write_u16_to_heap(static_cast<uint16_t>(dest_address), value_to_write);
+    }
 }
 
 std::string InstructionEvaluator::handle_print(const Atom& arg, const std::string& process_name) {
@@ -287,6 +334,67 @@ void InstructionEvaluator::handle_for(const std::vector<Expr>& body, const Atom&
 
 void InstructionEvaluator::clear_variables() {
     symbol_table.clear();
+}
+
+uint16_t InstructionEvaluator::parse_hex_address(const std::string& hex_str) {
+    if (hex_str.size() < 3 || hex_str.substr(0, 2) != "0x") {
+        throw std::runtime_error("Invalid hex address format: " + hex_str);
+    }
+    
+    try {
+        return static_cast<uint16_t>(std::stoul(hex_str, nullptr, 16));
+    } catch (const std::exception& e) {
+        throw std::runtime_error("Invalid hex address: " + hex_str);
+    }
+}
+
+bool InstructionEvaluator::handle_memory_access_with_paging(uint32_t virtual_address) {
+    if (!memory_manager_) {
+        return false;
+    }
+    
+    // Try the access first, handle page fault if needed
+    uint16_t dummy;
+    if (!memory_manager_->read_from_memory(pcb_id_, virtual_address, dummy)) {
+        // Page fault occurred, handle it
+        return memory_manager_->handle_page_fault(pcb_id_, virtual_address);
+    }
+    
+    return true;
+}
+
+bool InstructionEvaluator::read_u16_with_paging(uint32_t virtual_address, uint16_t& value) {
+    if (!memory_manager_) {
+        return false;
+    }
+    
+    // Try to read, handle page fault if necessary
+    while (!memory_manager_->read_from_memory(pcb_id_, virtual_address, value)) {
+        // Page fault occurred, try to handle it
+        if (!memory_manager_->handle_page_fault(pcb_id_, virtual_address)) {
+            return false; // Failed to handle page fault
+        }
+        // Retry the read after handling page fault
+    }
+    
+    return true;
+}
+
+bool InstructionEvaluator::write_u16_with_paging(uint32_t virtual_address, uint16_t value) {
+    if (!memory_manager_) {
+        return false;
+    }
+    
+    // Try to write, handle page fault if necessary
+    while (!memory_manager_->write_to_memory(pcb_id_, virtual_address, value)) {
+        // Page fault occurred, try to handle it
+        if (!memory_manager_->handle_page_fault(pcb_id_, virtual_address)) {
+            return false; // Failed to handle page fault
+        }
+        // Retry the write after handling page fault
+    }
+    
+    return true;
 }
 
 }

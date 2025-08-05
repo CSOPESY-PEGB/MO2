@@ -6,7 +6,7 @@
 namespace osemu {
 std::atomic<uint32_t> PCB::next_pid{1}; 
 
-PCB::PCB(std::string procName, size_t totalLines)
+PCB::PCB(std::string procName, size_t totalLines, MemoryManager* memory_manager)
     : processID(next_pid++),
       processName(std::move(procName)),
       currentInstruction(0),
@@ -18,14 +18,16 @@ PCB::PCB(std::string procName, size_t totalLines)
           this->heap_memory,
           this->symbol_table,
           this->output_log,
-          this->processName 
+          this->processName,
+          this->processID,
+          memory_manager
       ))
 
 {
   evaluator->handle_declare("x", Atom(static_cast<uint16_t>(0)));
 }
 
-PCB::PCB(std::string procName, const std::vector<Expr>& instrs)
+PCB::PCB(std::string procName, const std::vector<Expr>& instrs, MemoryManager* memory_manager)
     : processID(next_pid++),
       processName(std::move(procName)),
       currentInstruction(0),
@@ -38,14 +40,16 @@ PCB::PCB(std::string procName, const std::vector<Expr>& instrs)
           this->heap_memory,
           this->symbol_table,
           this->output_log,
-          this->processName 
+          this->processName,
+          this->processID,
+          memory_manager
       ))
         
 {
   evaluator->handle_declare("x", Atom(static_cast<uint16_t>(0)));
 } //BTW I DONT GET PARA SAN YUNG MGA HANDLE_DECLARE HERE, 
 
-PCB::PCB(std::string procName, const std::vector<Expr>& instrs, size_t memory_size)
+PCB::PCB(std::string procName, const std::vector<Expr>& instrs, size_t memory_size, MemoryManager* memory_manager)
     : processID(next_pid++),
       processName(std::move(procName)),
       currentInstruction(0),
@@ -59,7 +63,9 @@ PCB::PCB(std::string procName, const std::vector<Expr>& instrs, size_t memory_si
           this->heap_memory,
           this->symbol_table,
           this->output_log,
-          this->processName
+          this->processName,
+          this->processID,
+          memory_manager
       ))
 {
   evaluator->handle_declare("x", Atom(static_cast<uint16_t>(0)));
@@ -136,6 +142,8 @@ bool PCB::executeCurrentInstruction() {
       setSleepCycles(cycles);
       return true;
     }
+
+    // Remove old READ/WRITE handlers - let InstructionEvaluator handle them consistently    
     
     //WHY ARE WE IMPLEMENTING THESE FUNCTIONS HERE HERE?
     //if (instr.type == Expr::READ){
