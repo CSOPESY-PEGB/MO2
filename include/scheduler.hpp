@@ -49,6 +49,8 @@ class Scheduler {
     std::condition_variable dispatch_go_cv_; // Scheduler notifies workers to start their tick
     std::condition_variable workers_done_cv_; // Workers notify Scheduler they've finished their tick
     std::mutex barrier_mutex_; // Mutex protecting barrier counts and CVs
+    size_t memPerFrame{64};
+
     
  private:
   friend class CPUWorker;
@@ -79,6 +81,9 @@ class Scheduler {
     int core_id_; // Core ID (public for reporting)
 
     std::mutex mutex_; // Protects `current_task_` and internal counters/flags
+
+
+
 
 
   private:
@@ -147,7 +152,6 @@ class Scheduler {
   size_t active_cores_{0};
   
   size_t maxOverallMemory{1024};
-  size_t memPerFrame{64};
   size_t minMemPerProc{512};
   size_t maxMemPerProc{1024};
 

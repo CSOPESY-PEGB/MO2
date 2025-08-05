@@ -1,12 +1,13 @@
 #include "process_control_block.hpp"
 
 #include <format>
+#include <fstream>
 #include <sstream>
 
 namespace osemu {
 std::atomic<uint32_t> PCB::next_pid{1}; 
 
-PCB::PCB(std::string procName, size_t totalLines)
+PCB::PCB(std::string procName, size_t totalLines, size_t mem_per_frame)
     : processID(next_pid++),
       processName(std::move(procName)),
       currentInstruction(0),
@@ -14,18 +15,20 @@ PCB::PCB(std::string procName, size_t totalLines)
       creationTime(std::chrono::system_clock::now()),
       assignedCore(std::nullopt),
       sleepCyclesRemaining(0),
+      mem_per_frame(mem_per_frame),
+      heap_end(heap_end),
       evaluator(std::make_unique<InstructionEvaluator>(
-          this->heap_memory,
+          this->page_table,
           this->symbol_table,
           this->output_log,
-          this->processName 
+          this->processName,
+          this->mem_per_frame
       ))
-
 {
-  evaluator->handle_declare("x", Atom(static_cast<uint16_t>(0)));
+  page_table.reserve(65536 / mem_per_frame);
 }
 
-PCB::PCB(std::string procName, const std::vector<Expr>& instrs)
+PCB::PCB(std::string procName, const std::vector<Expr>& instrs, size_t mem_per_frame)
     : processID(next_pid++),
       processName(std::move(procName)),
       currentInstruction(0),
@@ -34,18 +37,20 @@ PCB::PCB(std::string procName, const std::vector<Expr>& instrs)
       assignedCore(std::nullopt),
       sleepCyclesRemaining(0),
       instructions(instrs),
+      mem_per_frame(mem_per_frame),
       evaluator(std::make_unique<InstructionEvaluator>(
-          this->heap_memory,
+          this->page_table,
           this->symbol_table,
           this->output_log,
-          this->processName 
+          this->processName,
+          this->mem_per_frame
       ))
         
 {
-  evaluator->handle_declare("x", Atom(static_cast<uint16_t>(0)));
+  page_table.reserve(65536 / mem_per_frame);
 } //BTW I DONT GET PARA SAN YUNG MGA HANDLE_DECLARE HERE, 
 
-PCB::PCB(std::string procName, const std::vector<Expr>& instrs, size_t memory_size)
+PCB::PCB(std::string procName, const std::vector<Expr>& instrs, size_t memory_size, size_t mem_per_frame)
     : processID(next_pid++),
       processName(std::move(procName)),
       currentInstruction(0),
@@ -54,15 +59,15 @@ PCB::PCB(std::string procName, const std::vector<Expr>& instrs, size_t memory_si
       assignedCore(std::nullopt),
       sleepCyclesRemaining(0),
       instructions(instrs),
-      heap_memory(memory_size, 0), // no need to subtract 64 since we're already taking that into account!
       evaluator(std::make_unique<InstructionEvaluator>(
-          this->heap_memory,
+          this->page_table,
           this->symbol_table,
           this->output_log,
-          this->processName
+          this->processName,
+          this->mem_per_frame
       ))
 {
-  evaluator->handle_declare("x", Atom(static_cast<uint16_t>(0)));
+  page_table.reserve(65536 / mem_per_frame);
 }
 
 //
@@ -85,6 +90,10 @@ InstructionExecutionInfo PCB::step() {
     decrementSleepCycles();
     return InstructionExecutionInfo();
   }
+
+  //if instruction is not in memory
+  //if(instruction is not in memory)
+  //    return InstructionExecutionInfo(InstructionResult::PAGE_FAULT, page_number_to_request)
   
   if (currentInstruction < instructions.size()) {
     executeCurrentInstruction();
@@ -98,7 +107,85 @@ InstructionExecutionInfo PCB::step() {
 
 bool PCB::isComplete() const { return currentInstruction >= totalInstructions; }
 
+bool PCB::store(std::string& storage_file) {
+      std::vector<std::variant<uint16_t,Expr>> mixed_value_storage(65472, uint16_t{0});
 
+      std::ofstream out(storage_file, std::ios::binary | std::ios::app);
+      if (!out) {
+          throw std::runtime_error("Cannot open storage file for writing.");
+      }
+
+      // Write PCB ID
+      out.write(reinterpret_cast<const char*>(&processID), sizeof(processID));
+
+      // Write program size
+      size_t program_size = mixed_value_storage.size();
+      out.write(reinterpret_cast<const char*>(&program_size), sizeof(program_size));
+
+      // Write program instructions
+      for (const auto& instruction : mixed_value_storage) {
+          uint8_t type = static_cast<uint8_t>(instruction.index());
+          out.write(reinterpret_cast<const char*>(&type), sizeof(type));
+
+          if (std::holds_alternative<uint16_t>(instruction)) {
+              uint16_t val = std::get<uint16_t>(instruction);
+              out.write(reinterpret_cast<const char*>(&val), sizeof(val));
+          } else if (std::holds_alternative<Expr>(instruction)) {
+              const Expr& expr = std::get<Expr>(instruction);
+              expr.write(out);
+          }
+      }
+      return true;
+  }
+
+/*
+bool PCB::load(std::string storage_file) {
+    std::ifstream in(storage_file, std::ios::binary);
+    if (!in) {
+        return false; // File doesn't exist or cannot be opened.
+    }
+    while (in.peek() != EOF) {
+        uint32_t current_id;
+        in.read(reinterpret_cast<char*>(&current_id), sizeof(current_id));
+        if (in.gcount() == 0) break; // End of file
+        size_t program_size;
+        in.read(reinterpret_cast<char*>(&program_size), sizeof(program_size));
+        if (current_id == this->processID) {
+            mixed_value_storage.clear();
+            for (size_t i = 0; i < program_size; ++i) {
+                uint8_t type;
+                in.read(reinterpret_cast<char*>(&type), sizeof(type));
+                if (type == 0) { // uint16_t
+                    uint16_t val;
+                    in.read(reinterpret_cast<char*>(&val), sizeof(val));
+                    mixed_value_storage.emplace_back(val);
+                } else if (type == 1) { // Expr
+                    Expr expr;
+                    expr.read(in);
+                    mixed_value_storage.emplace_back(std::move(expr));
+                }
+            }
+            return true; // Found and loaded
+        } else {
+            // Skip this PCB's data
+            for (size_t i = 0; i < program_size; ++i) {
+                uint8_t type;
+                in.read(reinterpret_cast<char*>(&type), sizeof(type));
+                if (type == 0) {
+                    in.seekg(sizeof(uint16_t), std::ios::cur);
+                } else if (type == 1) {
+                    // This is tricky, we need to deserialize to skip correctly.
+                    // A better format would have stored the size of the block.
+                    // For now, we deserialize to a dummy object.
+                    Expr dummy;
+                    dummy.read(in);
+                }
+            }
+        }
+    }
+    return false; // Not found
+}
+*/
 
 std::string PCB::status() const {
   
@@ -136,42 +223,7 @@ bool PCB::executeCurrentInstruction() {
       setSleepCycles(cycles);
       return true;
     }
-    
-    //WHY ARE WE IMPLEMENTING THESE FUNCTIONS HERE HERE?
-    //if (instr.type == Expr::READ){
-    //  if (symbol_table_size >= symbol_table_limit) {
-    //    throw std::runtime_error("Symbol table limit reached"); 
-    //    return true;
-    //  }
-    //  else if (instr.atom_value->number_value >= heap_memory.size()) {
-    //    throw std::runtime_error("Heap address out of bounds");
-    //    return true;
-    //    // violation error and then shut down the process
-    //  } else {
-    //    // check if logic is good
-    //    symbol_table[instr.var_name] = heap_memory[instr.atom_value->number_value];
-    //    Atom temp_atom("READ operation: " + instr.var_name + " = " + std::to_string(symbol_table[instr.var_name]), Atom::STRING);
-    //    symbol_table_size++;
-    //    evaluator->handle_print(temp_atom, processName);
-    //    return true;
-    //  }
-    //}
-
-    //if (instr.type == Expr::WRITE) {
-    //  // check if heap address is valid
-    //  if (instr.lhs->number_value >= heap_memory.size()) {
-    //    throw std::runtime_error("Heap address out of bounds");
-    //    return true;
-    //    // violation error and then shut down the process
-    //  }
-    //  // check if logic is good
-    //  heap_memory[instr.lhs->number_value] = instr.rhs->number_value;
-    //  Atom temp_atom("WRITE operation: " + std::to_string(instr.lhs->number_value) + " = " + std::to_string(instr.rhs->number_value), Atom::STRING);
-    //  evaluator->handle_print(temp_atom, processName);
-    //  return true;
-    //}    
-    
-    
+        
     if (instr.type == Expr::CALL && instr.var_name == "PRINT") {
         if (instr.atom_value) { 
             Expr print_instr = instr;

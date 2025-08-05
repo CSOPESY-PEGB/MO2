@@ -134,7 +134,7 @@ void Scheduler::dispatch(){
     signal_execute(); 
 
     //suspend all processes to handle page faults; not ideal in real world system but for this simulation ensures deterministic behavior and no deadlocks
-    memory_manager_->handle_page_faults(); 
+    // memory_manager_->handle_page_faults(); 
 
     ticks_++;
     
@@ -261,7 +261,7 @@ void Scheduler::generate_process() {
                 << " has too many instructions for the allocated memory size."
                 << std::endl;  
     } else {
-      auto pcb = std::make_shared<PCB>(process_name, instructions, memory_size);
+      auto pcb = std::make_shared<PCB>(process_name, instructions, memory_size, memPerFrame);
       submit_process(pcb); // Submit the newly created process to the ready queue
     }
 }
@@ -348,16 +348,18 @@ void Scheduler::stop() {
     global_clock_thread_.join();
   }
 
-  memory_manager_.reset();
+  //memory_manager_.reset();
 
   std::cout << "Scheduler stopped." << std::endl;
   std::cout << "Number of cycles from this run: " << ticks_.load() << std::endl;
 }
 
 void Scheduler::submit_process(std::shared_ptr<PCB> pcb) {
+  std::cout << "DEBUG DOES IT EVEN REACH HERE?" << std::endl;
   { 
     std::lock_guard<std::mutex> lock(map_mutex_);
     all_processes_map_[pcb->processName] = pcb;
+    memory_manager_->submit(pcb); //write process to backing store.
   }
   ready_queue_.push(std::move(pcb));
 }
