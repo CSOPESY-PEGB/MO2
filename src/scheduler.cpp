@@ -69,9 +69,23 @@ void Scheduler::global_clock() {
     while (running_.load()) {
         std::this_thread::sleep_for(std::chrono::milliseconds(20));
         if (!running_.load()) break;
+        
+        // Count active cores for this tick
+        size_t active_cores = 0;
+        for (const auto& worker : cpu_workers_) {
+            if (!worker->IsIdle()) {
+                ++active_cores;
+            }
+        }
+        
         {
             std::lock_guard<std::mutex> lock(clock_mutex_);
             ticks_++;
+            if (active_cores > 0) {
+                active_ticks_++;
+            } else {
+                idle_ticks_++;
+            }
         }
         clock_cv_.notify_all();
     }
@@ -383,5 +397,68 @@ void Scheduler::generate_full_report(const std::string& filename) const {
 
   report_file.close();
   std::cout << "Full system report generated at " << filename << std::endl;
+}
+
+void Scheduler::generate_vmstat_report(std::ostream& out) const {
+  // Get memory statistics from memory manager
+  if (memory_manager_) {
+    std::lock_guard<std::mutex> lock(clock_mutex_);
+    
+    // Calculate CPU statistics
+    size_t total_ticks = ticks_.load();
+    size_t idle_ticks = idle_ticks_.load();
+    size_t active_ticks = active_ticks_.load();
+    
+    // Calculate running processes
+    size_t running_procs = 0;
+    {
+      std::lock_guard<std::mutex> lock(running_mutex_);
+      running_procs = running_processes_.size();
+    }
+    
+    // Get memory statistics
+    uint32_t free_frames = memory_manager_->get_free_frame_count();
+    uint32_t total_frames = memory_manager_->get_total_frame_count();
+    uint64_t frame_size = memory_manager_->get_frame_size();
+    uint64_t free_mem = static_cast<uint64_t>(free_frames) * frame_size;
+    uint64_t used_mem = static_cast<uint64_t>(total_frames - free_frames) * frame_size;
+    uint64_t total_mem = static_cast<uint64_t>(total_frames) * frame_size;
+    
+    // Output vmstat in Unix-like format
+    out << "--- vmstat ---\n";
+    out << "procs -----------memory---------- ---swap-- -----io---- -system-- ------cpu-----\n";
+    out << " r  b   swpd   free   buff  cache   si   so    bi    bo   in   cs us sy id wa st\n";
+    out << std::format("{:2} {:2} {:6} {:6} {:6} {:6} {:4} {:4} {:5} {:5} {:4} {:4} {:2} {:2} {:2} {:2} {:2}\n", 
+           running_procs,  // r: running processes
+           0,              // b: blocked processes (not tracked)
+           0,              // swpd: swap used (not implemented)
+           free_mem / 1024, // free: free memory in KB
+           0,              // buff: buffer memory (not implemented)
+           0,              // cache: cache memory (not implemented)
+           memory_manager_->get_pages_paged_in(),  // si: swap in
+           memory_manager_->get_pages_paged_out(), // so: swap out
+           0,              // bi: blocks in (not implemented)
+           0,              // bo: blocks out (not implemented)
+           0,              // in: interrupts (not implemented)
+           0,              // cs: context switches (not implemented)
+           total_ticks > 0 ? (active_ticks * 100 / total_ticks) : 0,  // us: user time %
+           0,              // sy: system time % (not tracked separately)
+           total_ticks > 0 ? (idle_ticks * 100 / total_ticks) : 100,  // id: idle time %
+           0,              // wa: wait time % (not implemented)
+           0);             // st: steal time % (not implemented)
+    out << "-----\n";
+    out << std::format("Total CPU ticks: {}\n", total_ticks);
+    out << std::format("Active ticks: {} ({:.1f}%)\n", active_ticks, 
+           total_ticks > 0 ? (static_cast<double>(active_ticks) * 100.0 / total_ticks) : 0.0);
+    out << std::format("Idle ticks: {} ({:.1f}%)\n", idle_ticks,
+           total_ticks > 0 ? (static_cast<double>(idle_ticks) * 100.0 / total_ticks) : 100.0);
+    out << std::format("Memory: {} K total, {} K used, {} K free\n", 
+           total_mem / 1024, used_mem / 1024, free_mem / 1024);
+    out << std::format("Pages: {} paged in, {} paged out\n",
+           memory_manager_->get_pages_paged_in(), memory_manager_->get_pages_paged_out());
+    out << "--------------\n";
+  } else {
+    out << "vmstat: Memory manager not initialized\n";
+  }
 }
 }

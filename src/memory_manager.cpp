@@ -304,4 +304,20 @@ uint32_t MemoryManager::get_free_frame_count() const {
   }
   return free_count;
 }
+
+uint32_t MemoryManager::get_total_frame_count() const {
+  return frames_.size();
+}
+
+uint64_t MemoryManager::get_frame_size() const {
+  return frame_size_;
+}
+
+size_t MemoryManager::get_pages_paged_in() const {
+  return pages_paged_in_.load();
+}
+
+size_t MemoryManager::get_pages_paged_out() const {
+  return pages_paged_out_.load();
+}
 }

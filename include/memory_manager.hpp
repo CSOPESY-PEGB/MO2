@@ -65,6 +65,10 @@ public:
 
     bool is_registered(uint32_t pcb_id) const;
     uint32_t get_free_frame_count() const;
+    uint32_t get_total_frame_count() const;
+    uint64_t get_frame_size() const;
+    size_t get_pages_paged_in() const;
+    size_t get_pages_paged_out() const;
 
 private:
     // --- UPDATED DECLARATIONS ---
